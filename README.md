@@ -93,3 +93,7 @@ vault-5w2h/   演示库（可再生：node vault-5w2h/build.js）
 - **未做**：Obsidian 官方商店提交（等 BRAT 稳定运行几个版本）、npm publish（package.json 已配好 `files`，随时可发）
 
 [RELEASE.md](RELEASE.md) 有完整的发布/更新流程。
+
+## License
+
+[MIT](LICENSE)
