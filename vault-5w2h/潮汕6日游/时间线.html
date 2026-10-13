@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>事实时间线</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: #0f1115; color: #e6e8ec; padding: 32px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #8b93a1; margin: 0 0 28px; font-size: 13px; }
+  .timeline { max-width: 720px; margin: 0 auto; position: relative; padding-left: 18px; }
+  .timeline::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px;
+    background: linear-gradient(#3b82f6, #8b5cf6); }
+  .day { position: relative; margin: 0 0 26px; }
+  .day::before { content: ""; position: absolute; left: -18px; top: 6px; width: 12px; height: 12px;
+    border-radius: 50%; background: #3b82f6; box-shadow: 0 0 0 4px #0f1115; }
+  .date { font-weight: 700; font-size: 14px; color: #c7d2fe; margin-bottom: 10px; letter-spacing: .3px; }
+  .cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .card { background: #171a21; border: 1px solid #262b36; border-radius: 12px; padding: 12px 14px;
+    transition: border-color .15s, transform .15s; }
+  .card:hover { border-color: #3b82f6; transform: translateX(2px); }
+  .body { color: #e6e8ec; }
+  .meta { margin-top: 6px; font-size: 12px; color: #8b93a1; }
+</style>
+</head>
+<body>
+  <h1>事实时间线</h1>
+  <p class="sub">5 条事实 · 按日期倒序 · 由内核自动生成</p>
+  <div class="timeline"><section class="day"><div class="date">2026-10-12</div><ul class="cards"><li class="card"><div class="body">D3 牛肉火锅收尾</div><div class="meta">我自己　🕐 18:30　📍 潮州　🔧 餐饮　📊 -260</div></li><li class="card"><div class="body">特产打包带回</div><div class="meta">我自己　🕐 20:00　📍 潮州　🔧 购物　📊 -350</div></li></ul></section><section class="day"><div class="date">2026-10-11</div><ul class="cards"><li class="card"><div class="body">D2 南澳岛环岛，住一晚</div><div class="meta">我自己　🕐 21:00　📍 南澳岛　🔧 住宿　📊 -480</div></li></ul></section><section class="day"><div class="date">2026-10-10</div><ul class="cards"><li class="card"><div class="body">D1 高铁抵达汕头</div><div class="meta">我自己　🕐 08:30　📍 汕头　🔧 高铁　📊 -620</div></li><li class="card"><div class="body">D1 小公园开埠区逛吃</div><div class="meta">我自己　🕐 12:30　📍 汕头　🔧 餐饮　📊 -180</div></li></ul></section></div>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "domain": "通用事实记录，按主题分库（每个主题 = 一个自包含目录；同主题内 howmuch 天然同义，不做单位校验；howmuch 为有符号数——资金主题约定 负=出、正=进，符号语义靠主题内约定传播，核心不判正负）",
+  "enum_policy": "所有枚举值均从库中已发生事实抽取（插件 historyOf 运行时提供），契约不预设业务/场景枚举",
+  "id_pattern": "^f-\\d{8}-\\d{4}-[0-9a-f]{4}$",
+  "field_order": [
+    "id",
+    "who",
+    "when",
+    "time",
+    "what",
+    "where",
+    "why",
+    "how",
+    "howmuch",
+    "recorded",
+    "tags"
+  ],
+  "required": ["who", "when", "what"],
+  "number_fields": ["howmuch"],
+  "date_fields": ["when", "recorded"],
+  "link_fields": [],
+  "name_illegal_chars": ["/", "\\", ":", "*", "\"", "<", ">", "|", "?", "[", "]"],
+  "enums": {},
+  "judgement_words": []
+}

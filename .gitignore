@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 开发库的构建产物（协作者跑 npm run plugin 生成，不进历史）
+vault-5w2h/.obsidian/plugins/solofact/main.js
+
+# Obsidian 运行时的本地状态（每台机器不同，不发不传）
+vault-5w2h/.obsidian/app.json
+vault-5w2h/.obsidian/appearance.json
+vault-5w2h/.obsidian/workspace.json
+vault-5w2h/.obsidian/core-plugins.json
+
+# 回收站与本地记忆
+.Trash-*/
+.workbuddy/
+
+# 工具索引
+.codegraph
+
+# 系统垃圾
+.DS_Store
+*.log

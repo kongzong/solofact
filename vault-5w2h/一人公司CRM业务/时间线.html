@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>事实时间线</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: #0f1115; color: #e6e8ec; padding: 32px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #8b93a1; margin: 0 0 28px; font-size: 13px; }
+  .timeline { max-width: 720px; margin: 0 auto; position: relative; padding-left: 18px; }
+  .timeline::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px;
+    background: linear-gradient(#3b82f6, #8b5cf6); }
+  .day { position: relative; margin: 0 0 26px; }
+  .day::before { content: ""; position: absolute; left: -18px; top: 6px; width: 12px; height: 12px;
+    border-radius: 50%; background: #3b82f6; box-shadow: 0 0 0 4px #0f1115; }
+  .date { font-weight: 700; font-size: 14px; color: #c7d2fe; margin-bottom: 10px; letter-spacing: .3px; }
+  .cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .card { background: #171a21; border: 1px solid #262b36; border-radius: 12px; padding: 12px 14px;
+    transition: border-color .15s, transform .15s; }
+  .card:hover { border-color: #3b82f6; transform: translateX(2px); }
+  .body { color: #e6e8ec; }
+  .meta { margin-top: 6px; font-size: 12px; color: #8b93a1; }
+</style>
+</head>
+<body>
+  <h1>事实时间线</h1>
+  <p class="sub">7 条事实 · 按日期倒序 · 由内核自动生成</p>
+  <div class="timeline"><section class="day"><div class="date">2026-10-12</div><ul class="cards"><li class="card"><div class="body">李工介绍同行朋友，潜在新客户，记一下</div><div class="meta">星河·李工　🕐 09:00　🔧 微信</div></li></ul></section><section class="day"><div class="date">2026-10-08</div><ul class="cards"><li class="card"><div class="body">明总付了首款 14 万</div><div class="meta">明泰·明总　🕐 16:00　🔧 付款　📊 140000</div></li></ul></section><section class="day"><div class="date">2026-10-06</div><ul class="cards"><li class="card"><div class="body">合同细节敲定，金额 26 万，走集采</div><div class="meta">腾讯·老王　🕐 16:30　📍 客户现场　🔧 合同　📊 260000</div></li></ul></section><section class="day"><div class="date">2026-09-15</div><ul class="cards"><li class="card"><div class="body">周会同步客户共性问题：都嫌录入麻烦、字段太多</div><div class="meta">内部·产品组　🕐 10:00　📍 公司　🔧 会议</div></li></ul></section><section class="day"><div class="date">2026-09-05</div><ul class="cards"><li class="card"><div class="body">李工反馈 API 文档看不懂，约二次讲解</div><div class="meta">星河·李工　🕐 09:15　🔧 邮件</div></li></ul></section><section class="day"><div class="date">2026-09-03</div><ul class="cards"><li class="card"><div class="body">明总问报价，给了 30 万预算区间</div><div class="meta">明泰·明总　🕐 14:00　🔧 预算　📊 300000</div></li></ul></section><section class="day"><div class="date">2026-09-01</div><ul class="cards"><li class="card"><div class="body">首次对接，聊了他们 CRM 替换的痛点：销售不愿记、管理层看不到</div><div class="meta">腾讯·老王　🕐 10:00　📍 客户现场　🔧 会议</div></li></ul></section></div>
+</body>
+</html>

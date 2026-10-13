@@ -1,0 +1,12 @@
+{
+  "who": "text",
+  "when": "date",
+  "time": "text",
+  "what": "text",
+  "where": "text",
+  "why": "text",
+  "how": "text",
+  "howmuch": "number",
+  "recorded": "date",
+  "tags": "tags"
+}
