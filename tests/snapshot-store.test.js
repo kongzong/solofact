@@ -52,22 +52,22 @@ test('snapshotStore 下录入即刷新时间线：全新主题第一条也不例
   const store = await snapshotStore(vault, { label: 'fake' });
   const s = openSession(store, { enums, now: NOW });
   const r = s.record({
-    topic: '人情往来', who: '孔宇', when: '2026-10-13', time: '13:48',
-    what: '孙子出生', where: '医院', how: '红包', howmuch: 1000,
+    topic: '测试主题', who: '测试人', when: '2026-10-13', time: '13:48',
+    what: '第一条测试事实', where: '测试地点', how: '测试方式', howmuch: 1000,
   });
   assert.equal(r.written, true, JSON.stringify(r.fatal));
   // commit 内的 writeTimeline 渲染时必须能扫到刚写的事实 md（暂存区对 list/read 可见）
-  assert.match(store.read('人情往来/时间线.md'), /1 条/, 'commit 后时间线应含刚录的事实（不是建主题时的 0 条）');
+  assert.match(store.read('测试主题/时间线.md'), /1 条/, 'commit 后时间线应含刚录的事实（不是建主题时的 0 条）');
   await store.flush();
-  const flushed = disk.get('人情往来/时间线.md');
+  const flushed = disk.get('测试主题/时间线.md');
   assert.match(flushed, /1 条/, 'flush 落盘的时间线也应是 1 条（暂存内容即最终内容）');
-  assert.match(flushed, /孙子出生/, '时间线应含事实正文');
-  assert.match(disk.get('人情往来/时间线.html'), /1 条事实/, 'html 时间线同步');
+  assert.match(flushed, /第一条测试事实/, '时间线应含事实正文');
+  assert.match(disk.get('测试主题/时间线.html'), /1 条事实/, 'html 时间线同步');
   // 再录一条：条数递增（每次录入都重刷，不是只在建主题时写一次）
-  s.record({ topic: '人情往来', who: '我', when: '2026-10-12', what: '满月酒' });
-  assert.match(store.read('人情往来/时间线.md'), /2 条/, '追加第二条后时间线应变 2 条');
+  s.record({ topic: '测试主题', who: '我', when: '2026-10-12', what: '第二条测试事实' });
+  assert.match(store.read('测试主题/时间线.md'), /2 条/, '追加第二条后时间线应变 2 条');
   await store.flush();
-  assert.match(disk.get('人情往来/时间线.md'), /2 条/, 'flush 后盘上也是 2 条');
+  assert.match(disk.get('测试主题/时间线.md'), /2 条/, 'flush 后盘上也是 2 条');
 });
 
 test('snapshotStore：既有主题录第二条，时间线从旧内容刷新', async () => {
