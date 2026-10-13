@@ -5,6 +5,13 @@ dist/
 # 开发库的构建产物（协作者跑 npm run plugin 生成，不进历史）
 vault-5w2h/.obsidian/plugins/solofact/main.js
 
+# demo vault 的**内容是生成物**（node build.js 可再生）：事实 id 后四位随机，
+# 每次重建文件名必变——跟踪它只会让 git 卫生检查永远报脏、真改动被淹没。
+# 只跟踪生成器（build.js）、说明（README.md）和 .obsidian 配置。
+vault-5w2h/*/
+!vault-5w2h/.obsidian/
+vault-5w2h/_体检.md
+
 # Obsidian 运行时的本地状态（每台机器不同，不发不传）
 vault-5w2h/.obsidian/app.json
 vault-5w2h/.obsidian/appearance.json
