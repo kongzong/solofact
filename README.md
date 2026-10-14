@@ -41,7 +41,7 @@
 | 你是谁 | 拿什么 | 怎么开始 |
 |---|---|---|
 | **Obsidian 用户**（第一触点） | 演示库 zip | 下载 [release 附件 `solofact-vault-*.zip`](https://github.com/kongzong/solofact/releases/latest) → 解压 → Obsidian「以文件夹打开库」。插件已装好、5 个样例主题、八视图直接看，顺手就能录第一条自己的事实 |
-| **已有自己库的 Obsidian 用户** | 插件本体 | 装 [BRAT](https://github.com/TfTHacker/obsidian-brat-plugin) → Add beta plugin → 填 `kongzong/solofact`，以后每次发版点一下更新 |
+| **已有自己库的 Obsidian 用户** | 插件本体 | 装 [BRAT](https://github.com/TfTHacker/obsidian-brat-plugin) → Add beta plugin → 填 `kongzong/solofact`。三步图文流程见下方「已有自己的库？三步装上插件」 |
 | **想让 AI agent 替你记录的人** | skill 包 | 下载 release 附件 `solofact-skill-*.tar.gz` → 解压 → `cp -r solofact ~/.workbuddy/skills/`。之后对你的 agent 说「记一条事实」即可，SKILL.md 会教它用 CLI 走同一套校验 |
 | **开发者** | 整个仓库 | `git clone` 后 `npm i && npm test`。欢迎读 `core/`——纯函数、无框架、无运行时依赖 |
 
@@ -65,6 +65,18 @@ npm i            # 只装 devDeps（esbuild + typescript），运行时零依赖
 npm test         # 35 条测试：内核 + CLI 子进程 + 插件静态守卫
 npm run plugin   # 构建插件 bundle 进 vault-5w2h
 ```
+
+## 已有自己的库？三步装上插件（BRAT）
+
+走演示库 zip 的用户不用看这段——插件已经打在库里了。这条是给**已经有自己的 Obsidian 库**的人：插件还没进官方商店，借 BRAT（Beta Reviewers Auto-update Tester，社区里专门装测试版插件的工具）安装，装一次，以后发版更新很省事。
+
+1. **装 BRAT**：设置 → 第三方插件 → 浏览社区市场，搜 `BRAT` → 安装并启用。若社区插件被「受限模式」拦住，去 设置 → 安全模式 关闭它即可。
+2. **加 solofact**：BRAT 设置 → **Add beta plugin** → 填 `kongzong/solofact` → 确认。BRAT 会从 GitHub Release 拉取 `main.js` 和 `manifest.json`（商店标准的两个文件），装完即当前发布版，不需要 clone 源码。
+3. **录第一条**：点左侧边栏的笔形图标，或 `Ctrl/Cmd + P` 搜「记一条事实」。填 who / when / what 三个必填项，其余想填就填。存盘后，该主题的 `.base` 视图和时间线自动生成。
+
+**更新**：每次 solofact 发新 release，打开 BRAT 面板点一下更新（BRAT 设置里可开启「启动时自动更新」，连这一步也省掉）。注意 Obsidian **不热更新**插件——装完或更新后，重启 Obsidian（或命令面板「重载应用」）才生效。
+
+**不丢数据**：solofact 的真源（`_真源/facts.ndjson`）在你的库里，不在插件里。卸载或换装插件，数据原封不动——工具与数据分离是硬边界。样例主题整个删掉，库就是你的了。
 
 ## 仓库结构
 
