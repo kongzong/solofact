@@ -67,6 +67,10 @@ export default class SolofactPlugin extends Plugin {
     // 复制（2026-10-15）：以旧稿为底稿录一条新事实（when 照旧，用户自己改）。入口必须在插件——
     // Obsidian 自带复制是字节级复制文件、真源不知情：E_DUPLICATE_ID、时间线看不见、重建清掉。
     this.addCommand({ id: 'solofact-duplicate', name: '复制这条事实（以它为底稿录新的）', callback: () => void this.duplicateActiveFact() });
+    // 编辑（2026-10-15）：用户想要的是"改这条"，形态上不提供原地改——真源只追加，改旧行就是篡改历史。
+    // 内部实现 = 复制 + 删除：录一条改好的新事实，再删掉旧稿。顺序是硬的（先录后删）：
+    // 任何一步失败，最坏态都是"库里两条"（用户看得见、删一条就好），反过来则是"一条都没了"。
+    this.addCommand({ id: 'solofact-edit', name: '编辑这条事实（改内容，另存为新事实并删旧稿）', callback: () => void this.editActiveFact() });
 
     // 常驻体检：手改 Markdown 后没人再跑 体检，错误就静默——solocrm 那类失败的具体机制，这里堵掉
     const seen = (f: { path: string }) => this.onVaultChange(f.path);
@@ -266,18 +270,25 @@ export default class SolofactPlugin extends Plugin {
         `将从「${topic}」的真源里移除，不可逆（恢复靠库自己的 git）：\n\n${String(f.when ?? '')} ${String(f.who ?? '')} — ${String(f.content ?? f.what ?? '')}\n\n事实 md 会一并删除，时间线随之刷新。`,
         '确认删除',
         async () => {
-          const s = await this.openStore();
-          const r = openSession(s, { enums: enums5w2h, now: Date.now() }).remove({ topic, id });
-          if (!r.removed) throw new Error(r.fatal.map((i) => `${i.code} — ${i.message}`).join('；'));
-          const flush = await s.flush();
-          this.reportConfig(flush, s);
+          await this.removeFact(topic, id);
           new Notice(`✓ 已从「${topic}」删除 ${id}`, 5000);
-          this.scheduleAudit();
         }
       ).open();
     } catch (e) {
       new Notice(staged('删除', e).message, 10000);
     }
+  }
+
+  // 真删一条事实（core 的真源压缩 + 删 md + 刷时间线），失败抛错由调用方贴到脸上。
+  // 抽成方法是为了让"删除命令"和"编辑的收尾"共用同一条路径——删除只能有一个实现，
+  // 两个调用点各写一遍就是规则分叉的起点。调用方负责预览/确认：这里是执行，不含交互。
+  async removeFact(topic: string, id: string) {
+    const store = await this.openStore();
+    const r = openSession(store, { enums: enums5w2h, now: Date.now() }).remove({ topic, id });
+    if (!r.removed) throw new Error(r.fatal.map((i) => `${i.code} — ${i.message}`).join('；'));
+    const flush = await store.flush();
+    this.reportConfig(flush, store);
+    this.scheduleAudit();
   }
 
   // 复制这条事实（2026-10-15）：读当前打开的事实笔记 → duplicateDraft 生成草稿
@@ -304,6 +315,32 @@ export default class SolofactPlugin extends Plugin {
       new RecordModal(this.app, this, { ...draft, topic }).open();
     } catch (e) {
       new Notice(staged('复制', e).message, 10000);
+    }
+  }
+
+  // 编辑这条事实（2026-10-15）：和复制同一个底稿来源（duplicateDraftFromMarkdown），
+  // 差别只在提交之后——编辑要顺手把旧稿删掉（editing 传给表单，保存路径负责收尾）。
+  // 表单里已经明说"另存为新事实 + 删旧稿、id 会变"，所以这里不再弹确认框：
+  // 表单本身就是核对界面，再确认一次是把噪音当安全。
+  private async editActiveFact() {
+    try {
+      const file = this.app.workspace.getActiveFile();
+      const m = file?.path.match(/^([^/]+)\/事实\/(f-\d{8}-\d{4}-[0-9a-f]{4})\.md$/);
+      if (!file || !m) {
+        new Notice('先打开一条事实笔记（<主题>/事实/f-*.md），再运行「编辑这条事实」', 6000);
+        return;
+      }
+      const [, topic, id] = m;
+      const draft = openSession(await this.openStore(), { enums: enums5w2h, now: Date.now() }).duplicateDraftFromMarkdown(
+        await this.app.vault.read(file)
+      );
+      if (!draft) {
+        new Notice('这条笔记读不回契约，编辑不了——先修它，或跑次体检看看', 8000);
+        return;
+      }
+      new RecordModal(this.app, this, { ...draft, topic }, { topic, id }).open();
+    } catch (e) {
+      new Notice(staged('编辑', e).message, 10000);
     }
   }
 
@@ -383,7 +420,15 @@ class RecordModal extends Modal {
   // initial 是「复制这条事实」的预填草稿（2026-10-15）：带了主题就直接进阶段二，
   // 用户落在填满的表单上只改要改的。注意 TS 字段初始化器在构造体之前跑——
   // 这里的赋值晚于 `draft = {}`，initial 生效；反过来写会被初始化器盖掉。
-  constructor(app: App, private plugin: SolofactPlugin, private initial?: Record<string, unknown>) {
+  // editing（2026-10-15）：编辑模式的收尾凭据——旧稿的坐标 {topic, id}，保存成功后删它。
+  // 刻意不塞进 initial（那是纯事实字段的草稿）：旧 id 一旦混进草稿就是 E_DUPLICATE_ID，
+  // duplicateDraft 已从源头剥掉它，这里也不该再有一个"草稿里带着 id"的通道。
+  constructor(
+    app: App,
+    private plugin: SolofactPlugin,
+    private initial?: Record<string, unknown>,
+    private editing?: { topic: string; id: string }
+  ) {
     super(app);
     if (initial) this.draft = { ...initial };
   }
@@ -447,12 +492,21 @@ class RecordModal extends Modal {
   // 输入框里不放占位提示——字段描述就在行内（setDesc）；候选只挂同主题历史（词汇内聚）。
   private renderFactStage() {
     this.stage = 'fact';
-    this.setTitle(`记一条事实 · ${this.topic}`);
+    this.setTitle(this.editing ? `编辑这条事实 · ${this.topic}` : `记一条事实 · ${this.topic}`);
     const el = this.contentEl;
     el.empty();
     const d = this.draft;
     const topic = this.topic;
     this.errorEl = el.createDiv({ cls: 'solofact-errors' });
+
+    // 编辑模式把机制写在脸上：不是"改旧行"，是"另存新行 + 删旧行"。用户得知道 id 会变
+    // （别处若链接过这条会断），也得知道取消是零副作用的——这两件事不知道，编辑就不敢点。
+    if (this.editing) {
+      el.createEl('p', {
+        text: '编辑 = 以改好的内容另存为新事实，再删掉旧稿（真源只追加，旧内容不会被改写）。保存后 id 会变，别处若有指向旧稿的链接要更新；取消则原封不动。',
+        attr: { style: 'color:var(--text-muted);font-size:0.9em;margin:0 0 10px;line-height:1.5;' },
+      });
+    }
 
     // 主题行：锁定显示 + 换主题。settings.topic 指着它——提交时 E_BAD_TOPIC 之类标红这一行。
     this.settings.topic = this.add(el, '主题', topic, 'topic', (s) =>
@@ -541,10 +595,12 @@ class RecordModal extends Modal {
       })
       .addButton((b) => {
         // 连记（2026-10-15，A1）：记账/CRM 一天多笔，不用每笔重走两阶段。
+        // 编辑模式不给这个按钮：一次编辑对应一条事实，"保存完接着再存一份改稿"没有语义。
+        if (this.editing) return;
         this.keepBtn = b.setButtonText('记下来并继续').onClick(() => void this.submit(true));
       })
       .addButton((b) => {
-        this.okBtn = b.setButtonText('记下来').setCta().onClick(() => void this.submit(false));
+        this.okBtn = b.setButtonText(this.editing ? '保存修改' : '记下来').setCta().onClick(() => void this.submit(false));
       });
   }
 
@@ -630,7 +686,7 @@ class RecordModal extends Modal {
       this.plugin.rememberHistory(result.topic, result.fact);
       const id = String(result.fact.id);
       for (const w of result.warn) new Notice(`⚠ ${w.code} — ${w.message}（已写入，告警不阻断；体检会一直报到它消失）`, 7000);
-      if (keepOpen) {
+      if (keepOpen && !this.editing) {
         // 重渲染阶段二：候选刷新（含刚记的值，A4）、输入框归零、焦点回到正文
         this.draft.what = '';
         this.draft.howmuch = '';
@@ -639,6 +695,24 @@ class RecordModal extends Modal {
         this.renderFactStage();
         this.settings.what.settingEl.querySelector('textarea')?.focus();
         new Notice(`✓ 已记 ${id}，继续记下一条`, 3000);
+        return;
+      }
+      // 编辑收尾：副本已经落盘，这会儿才删旧稿。顺序是硬的（先录后删）——
+      // 任何一步失败，最坏都是"库里两条都在"（看得见、删一条就好）；
+      // 反过来先删后录，一次失败就是这条事实彻底没了，那才叫不可恢复。
+      if (this.editing) {
+        const old = this.editing;
+        try {
+          await this.plugin.removeFact(old.topic, old.id);
+          new Notice(`✓ 已保存为 ${result.topic}/事实/${id}.md，旧稿 ${old.id} 已删除（id 变了，别处若有链接要更新）`, 6000);
+        } catch (e) {
+          // 副本在、旧稿也在——不是数据丢失，但必须说清楚：不说的话用户以为编辑没生效，库里却躺着两条
+          new Notice(
+            `⚠ 改好的事实已保存为 ${id}，但删旧稿失败：${String((e as Error)?.message ?? e)}。库里现在两条都在（旧稿 ${old.id} 未删），请对旧稿运行「删除这条事实」收尾。`,
+            15000
+          );
+        }
+        this.close();
         return;
       }
       new Notice(`✓ ${result.topic}/事实/${id}.md`, 4000);
@@ -653,10 +727,11 @@ class RecordModal extends Modal {
   }
 
   private setBusy(busy: boolean) {
+    const okLabel = this.editing ? '保存修改' : '记下来';
     this.okBtn?.setDisabled(busy);
     this.cancelBtn?.setDisabled(busy);
     this.keepBtn?.setDisabled(busy);
-    this.okBtn?.setButtonText(busy ? '写入中…' : '记下来');
+    this.okBtn?.setButtonText(busy ? (this.editing ? '保存中…' : '写入中…') : okLabel);
     this.keepBtn?.setButtonText(busy ? '写入中…' : '记下来并继续');
   }
 
