@@ -179,6 +179,17 @@ test('5W2H 表单：两阶段（先主题后事实），必填 who/when/what，�
   assert.ok((text.match(/setPlaceholder\(/g) ?? []).length <= 1, '5W2H 输入框不设占位符：提示走字段描述，不塞进输入框');
 });
 
+test('改回视图文件名必须在原位：不许用 fileManager.renameFile（2026-10-15 真机：文件跑到库根去了）', () => {
+  const text = readFileSync(path.join(root, 'plugin', 'main.ts'), 'utf8');
+  // fileManager.renameFile 的第二个参数是**文件名不是路径**：它会把文件挪到"新文件的默认位置"
+  // （实际就是库根目录），原文件夹里反而空了。用户点了「改回 公司记账.base」，名字改对了、
+  // 位置却跑到了根目录——主题目录里依然没有视图入口，等于修了个寂寞。改名的正确写法是
+  // vault.rename(file, 完整新路径)，linh就地改名、路径不变。这条从源头禁掉那个 API。
+  assert.doesNotMatch(text, /fileManager\.renameFile\(/, '改名请用 app.vault.rename(file, 完整路径)——fileManager.renameFile 会把文件挪到根目录');
+  // 反向确认那处确实是就地改（带目录前缀的完整路径），不是只给一个文件名
+  assert.match(text, /vault\.rename\(file, `\$\{topic\}\/\$\{topic\}\.base`\)/, '改回必须是 <主题>/<主题>.base 这条完整路径');
+});
+
 test('不留空白按钮：addButton 回调不许条件早退（2026-10-15 真机：编辑表单漏出空壳按钮）', () => {
   const text = readFileSync(path.join(root, 'plugin', 'main.ts'), 'utf8');
   // Obsidian 的 Setting.addButton 先建 DOM 再执行回调：回调里 if (...) return 只是不给它文字，

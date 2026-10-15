@@ -405,8 +405,11 @@ export default class SolofactPlugin extends Plugin {
           `好在内容没问题（视图里查的是目录名，不含文件名），把文件名改回去就完好如初，真源一个字节都不动。`,
         `改回 ${topic}.base`,
         async () => {
-          // 目标已存在（正主也在）时宿主会抛——那就说明是"两份并存"，交给体检报 + 用户自己挑一份删。
-          await this.app.fileManager.renameFile(file, `${topic}.base`);
+          // 必须用 vault.rename + 完整新路径，不能用 fileManager 那个只收文件名的改名 API：后者
+          // 会把文件挪到"新文件的默认位置"（实际就是库根目录）而不是留在原文件夹——2026-10-15
+          // 真机：点了「改回」，名字改对了，文件却跑到库根去了，主题目录里照样没有视图入口。
+          // vault.rename 的目标已存在（正主也在）时宿主会抛——那就说明是"两份并存"，交给体检报。
+          await this.app.vault.rename(file, `${topic}/${topic}.base`);
           new Notice(`已改回 ${topic}/${topic}.base`, 6000);
         }
       ).open();
