@@ -64,6 +64,9 @@ export default class SolofactPlugin extends Plugin {
     // 删除（2026-10-15）：对当前打开的事实笔记生效。手删 md 不管用——真源里那行还在，
     // 下次重建会把它复活；这是唯一的产品化删除路径（core 的真源压缩，壳先预览后确认）。
     this.addCommand({ id: 'solofact-forget', name: '删除这条事实（从真源移除，不可逆）', callback: () => void this.forgetActiveFact() });
+    // 复制（2026-10-15）：以旧稿为底稿录一条新事实（when 照旧，用户自己改）。入口必须在插件——
+    // Obsidian 自带复制是字节级复制文件、真源不知情：E_DUPLICATE_ID、时间线看不见、重建清掉。
+    this.addCommand({ id: 'solofact-duplicate', name: '复制这条事实（以它为底稿录新的）', callback: () => void this.duplicateActiveFact() });
 
     // 常驻体检：手改 Markdown 后没人再跑 体检，错误就静默——solocrm 那类失败的具体机制，这里堵掉
     const seen = (f: { path: string }) => this.onVaultChange(f.path);
@@ -266,6 +269,33 @@ export default class SolofactPlugin extends Plugin {
     }
   }
 
+  // 复制这条事实（2026-10-15）：读当前打开的事实笔记 → duplicateDraft 生成草稿
+  // （core 保证剥 id/time/recorded、when 照旧）→ 打开表单直接进阶段二（主题从路径
+  // 解析后单设进草稿）。写入仍走 record() 正门：新 id 自动生成，真源/md/时间线/
+  // 视图四层一致——这就是"插件复制"和"Obsidian 自带复制"的全部区别。
+  private async duplicateActiveFact() {
+    try {
+      const file = this.app.workspace.getActiveFile();
+      const m = file?.path.match(/^([^/]+)\/事实\/(f-\d{8}-\d{4}-[0-9a-f]{4})\.md$/);
+      if (!file || !m) {
+        new Notice('先打开一条事实笔记（<主题>/事实/f-*.md），再运行「复制这条事实」', 6000);
+        return;
+      }
+      const [, topic] = m;
+      // 读盘拿用户眼前这份（快照有时效差），解析+草稿在 core（session 是壳碰内核唯一的门）
+      const draft = openSession(await this.openStore(), { enums: enums5w2h, now: Date.now() }).duplicateDraftFromMarkdown(
+        await this.app.vault.read(file)
+      );
+      if (!draft) {
+        new Notice('这条笔记读不回契约，复制不了——先修它，或跑次体检看看', 8000);
+        return;
+      }
+      new RecordModal(this.app, this, { ...draft, topic }).open();
+    } catch (e) {
+      new Notice(staged('复制', e).message, 10000);
+    }
+  }
+
   // 主题=目录：用户在宿主里重命名/搬家主题目录，<主题>.base 里写死的 file.inFolder("旧名/事实")
   // 不会跟着变——视图静默变空，而静默正是这个项目要消灭的东西。检测到主题目录改名就说明白，
   // 并给一键修复（重建：按新目录名重生成 .base/时间线，真源不动）。
@@ -328,13 +358,23 @@ class RecordModal extends Modal {
   private stage: 'topic' | 'fact' = 'topic';
   private topic = '';
 
-  constructor(app: App, private plugin: SolofactPlugin) {
+  // initial 是「复制这条事实」的预填草稿（2026-10-15）：带了主题就直接进阶段二，
+  // 用户落在填满的表单上只改要改的。注意 TS 字段初始化器在构造体之前跑——
+  // 这里的赋值晚于 `draft = {}`，initial 生效；反过来写会被初始化器盖掉。
+  constructor(app: App, private plugin: SolofactPlugin, private initial?: Record<string, unknown>) {
     super(app);
+    if (initial) this.draft = { ...initial };
   }
 
   onOpen() {
     this.contentEl.addClass('solofact-record');
-    this.renderTopicStage();
+    // 草稿带主题 = 复制入口：跳过阶段一（主题已锁，行内「换主题」仍可回退重选）
+    if (String(this.draft.topic ?? '').trim()) {
+      this.topic = String(this.draft.topic);
+      this.renderFactStage();
+    } else {
+      this.renderTopicStage();
+    }
   }
 
   // ── 阶段一：选主题 ────────────────────────────────────────────

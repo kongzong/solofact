@@ -18,7 +18,7 @@ const ALLOWED = new Set(['obsidian', '../core/rel.js', '../core/vault.js', '../c
 const CORE_EXPORTS = new Set([
   // core/fact.js
   'makeId', 'idParts', 'parseDate', 'dayString', 'parseTime', 'parseFrontmatter', 'dumpFrontmatter',
-  'linkName', 'normalize', 'validate', 'renderFactFile', 'parseFactFile', 'renderPointerLine',
+  'linkName', 'normalize', 'validate', 'renderFactFile', 'parseFactFile', 'renderPointerLine', 'duplicateDraft',
   // core/vault.js
   'DIR', 'topicFacts', 'topicTruthFile', 'topicBase', 'topicTimelineMd', 'topicTimelineHtml',
   'TYPES_5W2H', 'buildBase', 'listTopics', 'ensureTopic', 'writeTypes', 'resetViews', 'writeTimeline',

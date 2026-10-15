@@ -90,6 +90,37 @@ function parseFrontmatter(markdown) {
   return { data, body: lines.slice(end + 1).join('\n'), error: null };
 }
 
+// 复制一条事实的录入草稿（2026-10-15）：插件「复制这条事实」的底稿生成器。
+// 语义 = 以旧稿为底稿录一条**新**事实：
+//   - when 照旧（副本默认是"同一件事的修正版"，要改成周期场景用户自己动）；
+//   - time 不输出——壳渲染时自动填当前时刻（副本的发生时刻属于复制那一刻）；
+//   - **id 绝不继承**：原样带 id 会撞 E_DUPLICATE_ID。Obsidian 自带复制（字节级复制
+//     文件、真源不知情）正是这么作死的：体检报致命、时间线看不见、重建直接清掉。
+//     插件复制 = 读旧稿内容 → 走 record() 正门写入，四层一致；本函数只负责
+//     "草稿里不许有 id"这条铁律，放 core 是为了可单测——壳里做的话，
+//     「顺手把 id 也带上」这种回归没有任何东西拦得住。
+function duplicateDraft(data) {
+  const draft = {};
+  const put = (k, v) => {
+    if (v != null && v !== '') draft[k] = v;
+  };
+  put('who', data.who);
+  put('when', data.when);
+  // 正文双写（frontmatter what + body），读回时 body 进 content——系统语义（hasBody）和
+  // 用户眼里 file 里的正文都以 content 为准，所以它优先；what 是兼容旧数据/手写稿的兜底。
+  put('what', data.content ?? data.what);
+  put('where', data.where);
+  put('why', data.why);
+  put('how', data.how);
+  put('howmuch', data.howmuch); // 0 是合法值（资金主题的 0 笔），不等于空
+  if (Array.isArray(data.tags)) {
+    if (data.tags.length) draft.tags = data.tags.join(', ');
+  } else {
+    put('tags', data.tags);
+  }
+  return draft;
+}
+
 function parseScalar(raw) {
   const s = raw.trim();
   if (s === '') return null;
@@ -301,6 +332,7 @@ export {
   dayString,
   parseTime,
   parseFrontmatter,
+  duplicateDraft,
   dumpFrontmatter,
   linkName,
   normalize,

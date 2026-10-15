@@ -5,7 +5,7 @@
 //
 // 主题 = 目录：每条 record() 带一个 topic，落盘进 <topic>/_真源/facts.ndjson + <topic>/事实/。
 // 没有 type、没有主题注册表——同主题内 howmuch 天然同义，type 这一级整个去掉。
-import { makeId, parseDate, validate } from './fact.js';
+import { makeId, parseFactFile, duplicateDraft, parseDate, validate } from './fact.js';
 import {
   DIR,
   ensureTopic,
@@ -198,7 +198,22 @@ function openSession(store, { enums, now = Date.now() }) {
     return { written, truthRows, skipped, topics, ...auditAndReport('重建后的事实库') };
   }
 
-  return { store, enums, now, ctx, record, remove, audit, auditAndReport, rebuild };
+  // 复制这条事实（2026-10-15）：以一篇事实 markdown 为底稿，生成录新事实的草稿
+  // （剥 id/time/recorded、when 照旧——约定和测试都在 core/fact.js#duplicateDraft）。
+  // 挂 session 而不是让壳直接 import fact.js：内核函数只能经这道门用（plugin.test.js 的守卫）。
+  // 读盘在壳（vault.read 拿到的是用户眼前这份；快照有时效差），解析和草稿在 core。
+  // 返回 null = 读不回契约（壳该提示"先修它"，而不是递上一个半截表单）：
+  // 解析失败固然是 null，"解析成功但不是事实"也是——parseFrontmatter 对无 frontmatter 的
+  // 纯文本走宽容语义（全文当正文、不报错），不拦的话用户会拿到缺 who/when 的草稿。
+  // 判"是不是事实"用 validate（core 的规则），壳不许自己判。
+  function duplicateDraftFromMarkdown(markdown) {
+    const { fact, error } = parseFactFile(markdown, enums);
+    if (error || !fact) return null;
+    if (validate(fact, ctx).some((i) => i.code.startsWith('E_'))) return null;
+    return duplicateDraft(fact);
+  }
+
+  return { store, enums, now, ctx, record, remove, duplicateDraftFromMarkdown, audit, auditAndReport, rebuild };
 }
 
 export { localDay, localHHMM, randHex4, makeFact, openSession };
