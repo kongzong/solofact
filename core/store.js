@@ -48,6 +48,13 @@ export function fsAdapter(root) {
     list(rel = '') {
       return walk(root, rel, []);
     },
+    // 「磁盘上真实有什么」——fs 本来就读盘，和 list 同值。存在的意义是和 snapshotStore
+    // 的 listReal 对齐接口：那里 list 走 Obsidian 索引（可能和磁盘不一致），listReal 走盘。
+    // resetViews 删旧名 .base 孤儿必须用 listReal（2026-10-15 真机：索引没这个路径，
+    // 索引版 list 列不到它，孤儿就永远删不掉）。
+    listReal(rel = '') {
+      return walk(root, rel, []);
+    },
     removeTree(rel) {
       if (rel !== '' && !existsSync(abs(rel))) return;
       rmSync(abs(rel), { recursive: true, force: true });

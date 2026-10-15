@@ -21,21 +21,31 @@ const NOW = new Date('2026-10-13T13:48:00').getTime();
 
 // 内存假 vault：只实现 snapshotStore 用到的那几个 API（getAllLoadedFiles/cachedRead/
 // getAbstractFileByPath/adapter/create/modify/createFolder/delete）。
+// hide = 「索引没有但盘上有」的路径集合（测试可随时往里加）：模拟 Obsidian 改目录名后
+// vault index 与磁盘不一致的那段时间——2026-10-15 真机上 rebuild 删不掉旧名 .base 孤儿，
+// 就是因为孤儿不在索引里，getAllLoadedFiles 看不见它。
 function fakeVault() {
   const disk = new Map(); // path -> text
   const folders = new Set();
+  const hide = new Set();
   const vault = {
     getName: () => 'fake-vault',
     getAllLoadedFiles: () => [
-      ...[...disk.keys()].map((p) => ({ path: p, stat: { mtime: 1 } })),
-      ...[...folders].map((p) => ({ path: p })),
+      ...[...disk.keys()].filter((p) => !hide.has(p)).map((p) => ({ path: p, stat: { mtime: 1 } })),
+      ...[...folders].filter((p) => !hide.has(p)).map((p) => ({ path: p })),
     ],
-    getAbstractFileByPath: (p) => (disk.has(p) ? { path: p, stat: { mtime: 1 } } : folders.has(p) ? { path: p } : null),
+    getAbstractFileByPath: (p) => (hide.has(p) ? null : disk.has(p) ? { path: p, stat: { mtime: 1 } } : folders.has(p) ? { path: p } : null),
     cachedRead: async (f) => disk.get(f.path),
     adapter: {
       exists: async (p) => disk.has(p) || folders.has(p.split('/')[0]),
       read: async (p) => disk.get(p) ?? null,
       write: async (p, text) => disk.set(p, text),
+      // 直接问磁盘的真实清单（Obsidian DataAdapter.list 的语义）——snapshotStore 的
+      // listReal 靠它拿「索引外也有」的文件
+      list: async () => ({ files: [...disk.keys()], folders: [...folders] }),
+      remove: async (p) => {
+        disk.delete(p);
+      },
     },
     create: async (p, text) => disk.set(p, text),
     modify: async (f, text) => disk.set(f.path, text),
@@ -45,7 +55,7 @@ function fakeVault() {
       folders.delete(f.path);
     },
   };
-  return { vault, disk };
+  return { vault, disk, hide };
 }
 
 test('snapshotStore 下录入即刷新时间线：全新主题第一条也不例外', async () => {
@@ -118,4 +128,32 @@ test('录入路径 bodies:false：不预读事实正文也能录（时间线从�
   assert.match(store.read('A/时间线.md'), /2 条/, '不读事实正文，时间线照样刷（数据源是真源）');
   await store.flush();
   assert.match(disk.get('A/时间线.md'), /2 条/);
+});
+
+test('rebuild 清掉索引外的旧名 .base 孤儿（目录改名后索引与磁盘不一致，2026-10-15 真机洞）', async () => {
+  // 真机还原：用户把主题目录 一人公司CRM业务 改名 一人CRM业务——Obsidian 改目录名不改
+  // 文件名，盘上留下 一人CRM业务/一人公司CRM业务.base（inFolder 写死旧目录名，打开是空视图）。
+  // 而 vault 索引里没有这条路径，getAllLoadedFiles 看不见它：
+  //   旧代码：resetViews 的删孤儿循环走 store.list（索引版）→ 列不到 → 孤儿活着；
+  //          即使标记了删除，flush 的 vault.delete 拿 getAbstractFileByPath(null) 也只能跳过。
+  //   修复：listReal（open 时 adapter.list 扫盘）+ removeTree 补标记 + flush adapter.remove 兜底。
+  const { vault, disk, hide } = fakeVault();
+  let store = await snapshotStore(vault, { label: 'fake' });
+  let s = openSession(store, { enums, now: NOW });
+  assert.equal(s.record({ topic: '一人CRM业务', who: '我', when: '2026-10-13', what: '第一条' }).written, true);
+  assert.equal(s.record({ topic: '一人CRM业务', who: '我', when: '2026-10-12', what: '第二条' }).written, true);
+  await store.flush();
+  // 模拟改名残留：base 文件在盘上换成旧名（内容不动），索引对它是隐形的
+  disk.set('一人CRM业务/一人公司CRM业务.base', disk.get('一人CRM业务/一人CRM业务.base'));
+  disk.delete('一人CRM业务/一人CRM业务.base');
+  hide.add('一人CRM业务/一人公司CRM业务.base');
+  // rebuild 路径重开快照：索引里只有新路径文件，孤儿不在索引——和真机一致
+  store = await snapshotStore(vault, { label: 'fake' });
+  s = openSession(store, { enums, now: NOW });
+  s.rebuild();
+  await store.flush();
+  assert.equal(disk.has('一人CRM业务/一人公司CRM业务.base'), false, '索引外旧名孤儿必须被 rebuild 清掉（Bases 面板不能有两个入口）');
+  assert.ok(disk.has('一人CRM业务/一人CRM业务.base'), '新名 base 应在');
+  assert.match(disk.get('一人CRM业务/一人CRM业务.base'), /一人CRM业务\/事实/, '新 base 的 inFolder 指向新目录');
+  assert.match(disk.get('一人CRM业务/时间线.md'), /2 条/, '时间线照常刷新');
 });

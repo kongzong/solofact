@@ -181,13 +181,15 @@ function writeTypes(store) {
 // 只有这条路径（重建）会覆盖 base／types.json——记录一条事实不会（见 ensureTopic 的"只在缺失时写"）。
 // 顺带清掉同目录下的旧名 .base 孤儿：主题目录被改名/搬家后，<旧名>.base 不会跟着改（宿主改目录名
 // 不改文件名），它的 inFolder 写死旧目录名——留着就是 Bases 面板两个入口、一个打开是空的。
+// 用 listReal（磁盘真实文件）而不是 list（vault 索引）：索引在目录改名后可能没有旧名文件这一条，
+// 索引版列举不到它，删孤儿就变成空操作（2026-10-15 真机复现，snapshotStore.listReal 兜底扫盘）。
 // 只删"名字不是当前主题"的 .base：用户手改当前 .base 的内容重建本来就覆盖（确认框里说过），
 // 而自建第二视图不是文档化用法——真出现了，重建前看一眼确认框就能救。
 function resetViews(store) {
   writeTypes(store);
   for (const topic of listTopics(store)) {
     store.write(topicBase(topic), buildBase(topic));
-    for (const p of store.list(topic)) {
+    for (const p of store.listReal(topic)) {
       if (p.endsWith('.base') && p !== topicBase(topic)) store.removeTree(p);
     }
     writeTimeline(store, topic);

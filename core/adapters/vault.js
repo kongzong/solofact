@@ -80,6 +80,19 @@ async function snapshotStore(vault, opts) {
     }
   }
 
+  // 「磁盘上真实有什么」的第二份账（2026-10-15）：vault index（files 上面那份）在主题目录
+  // 改名后会有一段时间和磁盘不一致——索引里没有旧名 <旧主题>.base，list/exists 全看不到它，
+  // resetViews 的删孤儿循环形同虚设，盘上就永远留一个 inFolder 写死旧目录名的空视图入口。
+  // adapter.list() 直接问磁盘（Obsidian DataAdapter 的官方能力），open 时扫一次存下来。
+  // 只枚举路径不读内容，O(全库) 一次的成本，换 rebuild 这条路径的「以磁盘真相为准」。
+  const realFiles = new Set();
+  try {
+    const listed = await adapter.list('/');
+    for (const p of listed?.files ?? []) realFiles.add(String(p).replace(/^\/+/, ''));
+  } catch (e) {
+    configProbe.readError = configProbe.readError ?? String(e?.message ?? e);
+  }
+
   for (const p of [...files].filter((p) => needsContent(p) && (bodies || !FACT_RE.test(p)))) {
     const f = vault.getAbstractFileByPath(p);
     content.set(p, f ? await vault.cachedRead(f) : await adapter.read(p));
@@ -96,6 +109,12 @@ async function snapshotStore(vault, opts) {
     append: (rel, text) => append(assertRel(rel), text),
     entries: (rel = '') => entries(assertRel(rel)),
     list: (rel = '') => list(assertRel(rel)),
+    // 磁盘真实文件列表（open 时 adapter.list 扫的），删除语义和 list 一致（暂存删除立即可见）。
+    // 给 resetViews 删旧名 .base 孤儿用——索引版 list 在目录改名后列不到旧名文件。
+    listReal: (rel = '') => {
+      const prefix = rel ? `${rel}/` : '';
+      return [...realFiles].filter((p) => p.startsWith(prefix) && !deletedFiles.has(p)).sort();
+    },
     removeTree: (rel) => removeTree(assertRel(rel)),
     flush,
     // 打开快照时取到的正文路径集合：内核读了没预加载的文件会在这里炸，而不是静默返回 null
@@ -170,6 +189,9 @@ async function snapshotStore(vault, opts) {
       dirty.delete(f);
       deletedFiles.add(f);
     }
+    // 索引外的真实文件也要标记：目录改名后的旧名 <旧主题>.base 就是这样——files（索引）里
+    // 没有它，上面那个循环扫不到，不补这一笔 removeTree 对它就是空操作（2026-10-15 真机）。
+    if (realFiles.has(p) && !deletedFiles.has(p)) deletedFiles.add(p);
     for (const d of [...dirs]) if (d === p || d.startsWith(`${p}/`)) {
       dirs.delete(d);
       madeDirs.delete(d);
@@ -189,6 +211,12 @@ async function snapshotStore(vault, opts) {
       const f = vault.getAbstractFileByPath(p);
       if (f) {
         await vault.delete(f);
+        removed++;
+      } else if (await adapter.exists(p)) {
+        // 索引里没有这条路径（主题目录改名后的旧名 <旧主题>.base 就是这一类），但磁盘上真实
+        // 存在——vault.delete 拿着 null 无从下手，静默跳过就永远留一个空视图入口在 Bases
+        // 面板里（2026-10-15 真机复现）。直接问 adapter 删掉它。
+        await adapter.remove(p);
         removed++;
       }
       deletedFiles.delete(p);
