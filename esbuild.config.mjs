@@ -19,7 +19,9 @@ if (watch) {
   await watchPlugin(outDir);
   console.log(` watching → ${outDir}`);
 } else {
-  await buildPlugin(outDir);
+  // expectId：装进库必须落在 <库>/.obsidian/plugins/solofact/ —— 目录名要和 manifest 的
+  // id 一致，写错位置宿主就不加载（而且不说为什么）。缺 manifest 曾经让插件在面板里整个消失。
+  await buildPlugin(outDir, { expectId: 'solofact' });
 }
 
 // 启用＝把 id 写进 .obsidian/community-plugins.json。已存在的列表要合并，不能覆盖——
