@@ -3,9 +3,12 @@
 // 主题 = 目录：跨所有主题汇总一份体检（数字层面），但不生成任何跨主题视图。
 // IO 全部走注入的 store（见 core/store.js），本文件不 import node:fs。
 import { validate, parseFactFile, dayString } from './fact.js';
-import { DIR, listTopics, topicFacts } from './vault.js';
+import { DIR, listTopics, topicFacts, viewIssues } from './vault.js';
 
 // 没有主题目录时返回空（而不是抛）——插件首跑、空库都该得到"0 主题 0 事实"而不是一条红错误。
+// 体检不只是扫事实文件：视图文件的名字坏了（缺 <主题>.base / 有异名 .base）也得报——
+// 那也是2026-10-15 之前报"全库干净"的静默之一。views 是库级检查，不进 rows（rows 的粒度必须是
+// 事实，rows.length 直接被当成事实总数用）。
 function scanVault(store, ctx) {
   const topics = listTopics(store);
   const rows = [];
@@ -24,7 +27,7 @@ function scanVault(store, ctx) {
     }
   }
   markDuplicates(rows, ctx);
-  return { rows, fileCount: countFiles(store), topics };
+  return { rows, fileCount: countFiles(store), topics, views: viewIssues(store) };
 }
 
 // 顺序很重要：先标重复 id 再算检出率，否则自检会漏看 E_DUPLICATE_ID。
@@ -50,8 +53,9 @@ function flatIssues(rows) {
   return all.sort((a, b) => (a.code[0] === 'E' ? 0 : 1) - (b.code[0] === 'E' ? 0 : 1) || a.code.localeCompare(b.code));
 }
 
-function tally(rows) {
-  const all = flatIssues(rows);
+// views = 库级检查（视图文件名），和行级告警并成一处，否则"告警 0 条"会撒谎。
+function tally(rows, views = []) {
+  const all = flatIssues(rows).concat(views);
   return {
     fatal: all.filter((i) => i.code.startsWith('E_')),
     warn: all.filter((i) => i.code.startsWith('W_')),
@@ -64,8 +68,8 @@ function latestDay(rows) {
   return days.length ? days[days.length - 1] : '—';
 }
 
-function reportLines({ title, vault, enums, now, rows, topics = [], extra = [] }) {
-  const { fatal, warn } = tally(rows);
+function reportLines({ title, vault, enums, now, rows, topics = [], extra = [], views = [] }) {
+  const { fatal, warn, all } = tally(rows, views);
   const byTopic = new Map();
   for (const r of rows) byTopic.set(r.topic, (byTopic.get(r.topic) || 0) + 1);
   return [
@@ -94,8 +98,8 @@ function reportLines({ title, vault, enums, now, rows, topics = [], extra = [] }
     '',
     '## 明细',
     '',
-    ...(flatIssues(rows).map((i) => `- \`${i.code}\` \`<${i.where}>\` — ${i.message}`)),
-    flatIssues(rows).length ? '' : '- 无',
+    ...(all.map((i) => `- \`${i.code}\` \`<${i.where}>\` — ${i.message}`)),
+    all.length ? '' : '- 无',
     '',
   ];
 }

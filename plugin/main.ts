@@ -89,6 +89,7 @@ export default class SolofactPlugin extends Plugin {
         this.onVaultChange(oldPath);
         if (f instanceof TFolder) console.log(`[solofact] folder rename: ${oldPath} -> ${f.path}`);
         void this.onMaybeTopicRename(f.path, oldPath);
+        void this.onBaseRename(f.path);
       })
     );
     this.app.workspace.onLayoutReady(() => this.scheduleAudit());
@@ -376,6 +377,41 @@ export default class SolofactPlugin extends Plugin {
       ).open();
     } catch (e) {
       new Notice(staged('检测主题改名', e).message, 10000);
+    }
+  }
+
+  // 视图文件被改名——和目录改名是两种病：
+  //   目录改名：base 里写死的 file.inFolder("旧名/事实") 不再命中 → **视图静默变空**（最要命的那种）
+  //   base 改名：内容照常工作（查的是目录不是文件名），坏的是约定——插件按 <主题>/<主题>.base
+  //              找它，找不到就等于这个主题没有视图入口；重建会把异名那份删掉重新生成正主。
+  // 以前这两件事都静默（体检也报"全库干净"），现在体检有 W_BASE_NAME / W_BASE_MISSING 兜底，
+  // 这里再当场补一句。给"改回原名"而不是"重建"：内容没坏，只是文件名错了，动真源是小题大做。
+  private async onBaseRename(newPath: string) {
+    const m = /^([^/]+)\/([^/]+)\.base$/.exec(newPath);
+    if (!m) return;
+    const [, topic, name] = m;
+    if (name === topic) return;
+    try {
+      // 只管主题目录下的 .base：非主题的孤立 base（用户自己攒的）不打扰。
+      if (!(await this.app.vault.adapter.exists(`${topic}/_真源/facts.ndjson`))) return;
+      const file = this.app.vault.getAbstractFileByPath(newPath);
+      if (!file) return;
+      new ConfirmModal(
+        this.app,
+        '视图文件名必须是主题名',
+        `主题「${topic}」的视图叫 \`${topic}.base\` 才算数（= 目录名），现在是 \`${name}.base\`。\n\n` +
+          `不改回来会这样：插件的「打开某个主题的视图」按 "${topic}/${topic}.base" 找它——找不到；` +
+          `下次记一条事实还会再补一份正主，目录里就有两个入口；跑「从真源重建」则会按主题名重生成正主、删掉这份。\n\n` +
+          `好在内容没问题（视图里查的是目录名，不含文件名），把文件名改回去就完好如初，真源一个字节都不动。`,
+        `改回 ${topic}.base`,
+        async () => {
+          // 目标已存在（正主也在）时宿主会抛——那就说明是"两份并存"，交给体检报 + 用户自己挑一份删。
+          await this.app.fileManager.renameFile(file, `${topic}.base`);
+          new Notice(`已改回 ${topic}/${topic}.base`, 6000);
+        }
+      ).open();
+    } catch (e) {
+      new Notice(staged('检测视图改名', e).message, 10000);
     }
   }
 

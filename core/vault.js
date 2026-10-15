@@ -50,6 +50,42 @@ const TYPES_5W2H = {
   tags: 'tags',
 };
 
+// 视图文件名也是规矩的一部分：一个主题目录下只能有一个 .base，名字必须等于目录名。
+//
+// 为什么这么严（2026-10-15 定）：<主题>.base 是**读模型**，由程序生成、重建覆盖；插件的
+// 「打开某个主题的视图」也按 `${topic}/${topic}.base` 这个路径找它。用户把它改名之后：
+//   · 插件找不到它 → 这个主题的视图入口没了（命令会说"还不存在"）
+//   · 下次记一条事实，ensureTopic 发现正主不在又补一份 → 目录里两个入口、两份同样的视图
+//   · 重建会重生成正主并**删掉异名那份**（用户那边看就是"文件被吃了"）
+// 这三件事以前全是静默的——体检照样报"全库干净"，因为体检只扫 事实/*.md，不看视图文件。
+//
+// 级别是告警 W_ 而不是致命 E_：base 里写的是 file.inFolder("<主题>/事实")，查的是**目录**
+// 不含文件名，所以改文件名本身不会让视图变空（那才是目录改名的症状）。它坏的是约定，
+// 不必改数据就能修——所以是"需要人看一眼"，不是"必须改数据"。
+function viewIssues(store) {
+  const issues = [];
+  for (const topic of listTopics(store)) {
+    const bases = (store.listReal(topic) || []).filter((p) => p.endsWith('.base'));
+    const main = topicBase(topic);
+    if (!bases.includes(main)) {
+      issues.push({
+        code: 'W_BASE_MISSING',
+        where: `${topic}/`,
+        message: `主题「${topic}」缺 ${topic}.base（视图入口）——跑「从真源重建」会按当前目录名重新生成一份`,
+      });
+    }
+    for (const p of bases) {
+      if (p === main) continue;
+      issues.push({
+        code: 'W_BASE_NAME',
+        where: p,
+        message: `视图文件名必须是 ${topic}.base（= 主题目录名）——插件和重建都按这个名字认它；这份异名的会被重建删掉。想保留就在重建前把文件名改回 ${topic}.base`,
+      });
+    }
+  }
+  return issues;
+}
+
 // 单个主题的 事实.base。凡是可枚举的文本字段都给一个"按 X 分组"看板：who/where/why/how 各一板，
 // when 走时间线，howmuch 拆"正值记录/负值记录"两张表（howmuch 是有符号数：资金主题 负=出、正=进，
 // 一张表混排看不出进出，拆开各是一本账；0 值罕见，归"全部事实"看）。howmuch 是通用度量，同主题内
@@ -368,6 +404,7 @@ export {
   TYPES_5W2H,
   buildBase,
   listTopics,
+  viewIssues,
   ensureTopic,
   writeTypes,
   resetViews,

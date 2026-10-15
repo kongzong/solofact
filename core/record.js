@@ -126,8 +126,8 @@ function openSession(store, { enums, now = Date.now() }) {
 
   function audit() {
     const scan = scanVault(store, { enums, now });
-    const { fatal, warn } = tally(scan.rows);
-    return { rows: scan.rows, fatal, warn, fileCount: scan.fileCount, topics: scan.topics };
+    const { fatal, warn } = tally(scan.rows, scan.views);
+    return { rows: scan.rows, fatal, warn, fileCount: scan.fileCount, topics: scan.topics, views: scan.views };
   }
 
   // 删除一条事实（2026-10-15 加）。为什么允许它存在：记错了没有任何产品化的纠正方式时，
@@ -167,7 +167,7 @@ function openSession(store, { enums, now = Date.now() }) {
 
   function auditAndReport(title) {
     const result = audit();
-    writeReport(store, reportLines({ title, vault: store.label, enums, now, rows: result.rows, topics: result.topics }));
+    writeReport(store, reportLines({ title, vault: store.label, enums, now, rows: result.rows, topics: result.topics, views: result.views }));
     return result;
   }
 
