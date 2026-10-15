@@ -25,8 +25,11 @@ const COMMANDS = {
   rebuild: 'rebuild',
   导入: 'import',
   import: 'import',
+  // 删除（2026-10-15 加）：唯一的破坏性写入——真源压缩。默认只预览，--yes 才执行。
+  删除: 'remove',
+  remove: 'remove',
   // 唯一的只读命令：给 agent 在录入前对齐主题名（拼写不一致，按主题的聚合就碎）。
-  // 零写入，所以它不算"写入面"的一员——写入面仍是上面五个，一个不许加。
+  // 零写入，所以它不算"写入面"的一员。
   主题: 'topics',
   topics: 'topics',
 };
@@ -45,6 +48,7 @@ function run(action) {
   const store = fsAdapter(vault);
   if (action === 'init') return doInit(store);
   if (action === 'record') return doRecord(store);
+  if (action === 'remove') return doRemove(store);
   if (action === 'audit') return doAudit(store);
   if (action === 'rebuild') return doRebuild(store);
   if (action === 'import') return doImport(store);
@@ -119,6 +123,38 @@ function doTopics(store) {
     const n = store.list(`${t}/${DIR.facts}`).filter((p) => p.endsWith('.md')).length;
     console.log(`  ${t} — ${n} 条`);
   }
+}
+
+// 删除：唯一的破坏性写入。默认 dryRun 预览（who/when/what 打给人看），--yes 才真删——
+// 真源压缩不可逆（恢复靠库自己的 git），agent 必须先让用户过目，这跟"致命错误拒绝写入"
+// 是同一种哲学：危险动作不许静默完成。删完 md 与时间线由 core 的 remove 一并处理。
+function doRemove(store) {
+  const topic = flags.topic || flags.主题 || flags.theme;
+  const id = rest[0] || flags.id;
+  if (!topic || !id) {
+    die('删除需要主题和事实 id：solofact 删除 --vault <库> --topic <主题> <id> [--yes]（先预览，确认后才删）');
+  }
+  const session = openSession(store, { enums, now });
+  if (!flags.yes) {
+    const p = session.remove({ topic, id, dryRun: true });
+    if (p.fatal.length) {
+      console.error(`✗ ${p.fatal[0].message}`);
+      process.exit(1);
+    }
+    console.log(`将要从「${topic}」删除这条事实（真源压缩，不可逆——恢复靠库自己的 git）：`);
+    console.log(`  ${renderPointerLine(p.fact)}`);
+    console.log('  确认删除：重跑同一命令加 --yes');
+    return;
+  }
+  const r = session.remove({ topic, id });
+  if (!r.removed) {
+    console.error(`✗ 拒绝删除：${r.fatal.map((i) => i.code).join(' ')}`);
+    for (const i of r.fatal) console.error(`  ${i.code} — ${i.message}`);
+    process.exit(1);
+  }
+  console.log(`✓ 已从「${topic}」删除 ${id}`);
+  console.log(`  ${renderPointerLine(r.fact)}`);
+  console.log('  该主题真源已压缩、事实 md 已删、时间线已刷新。删错了？库若在 git 里，从历史恢复。');
 }
 
 function doAudit(store) {
@@ -223,6 +259,7 @@ function help() {
   solofact init    --vault <库目录> [--force]
   solofact 记录    --vault <库> --topic 潮汕6日游 --who 我自己 --when 2026-10-12 [--time 09:30] \\
                   [--where 江边] [--why 记录习惯] [--how 运动] [--howmuch 5] [--tags 日常] "跑了 5 公里"
+  solofact 删除    --vault <库> --topic <主题> <id> [--yes]  # 唯一的破坏性写入：默认只预览，--yes 才真删（真源压缩不可逆）
   solofact 主题    --vault <库>          # 只读：列出现有主题和各主题事实数（录入前先对齐主题名）
   solofact 体检    --vault <库>          # 跨所有主题汇总，写 _体检.md；有致命错误退出码 1
   solofact 重建    --vault <库>          # 每个主题的 Markdown 从它自己的 _真源/ 重生成
@@ -230,5 +267,5 @@ function help() {
 
 主题 = 一个自包含目录：--topic 潮汕6日游 会建 潮汕6日游/{_真源,事实,潮汕6日游.base}。同主题内 howmuch 天然同义——没有 type、不校验单位，符号也是主题级约定（资金主题 负=出、正=进），核心只查是不是数字。
 规则在 contract/enums-5w2h.json（必填 who/when/what，枚举从库内历史事实抽，不预设场景）。
-致命 = 必须改数据；告警 = 需要人看一眼。护栏：不要修改脚本本体；写入面一个命令不许加（只读的「主题」除外）；改完规则跑一次 体检。`);
+致命 = 必须改数据；告警 = 需要人看一眼。护栏：不要修改脚本本体；改完规则跑一次 体检。`);
 }

@@ -12,6 +12,7 @@ import {
   resetViews,
   listTopics,
   topicFacts,
+  topicTruthFile,
   readTruth,
   appendTruth,
   factFile,
@@ -129,6 +130,41 @@ function openSession(store, { enums, now = Date.now() }) {
     return { rows: scan.rows, fatal, warn, fileCount: scan.fileCount, topics: scan.topics };
   }
 
+  // 删除一条事实（2026-10-15 加）。为什么允许它存在：记错了没有任何产品化的纠正方式时，
+  // 用户会不敢记——"记错收拾不了"比录入摩擦更隐蔽，也更致命。删掉的事实从世界上消失，
+  // 恢复只能靠库自己的 git，所以壳必须先 dryRun 预览、人确认后才真删。
+  //
+  // 真源压缩重写是整个 core 里唯一一次非 append 的真源写（append-only 的正当例外：显式删除，
+  // 不是静默覆盖）。读模型（md / 时间线）跟着删和刷，与"真源才是事实"不矛盾——
+  // 矛盾的是另一种形态：md 被手删、真源还在，下次重建把它复活（那个洞由这个命令补上）。
+  function remove(input) {
+    const topic = String(input.topic ?? '').trim();
+    const id = String(input.id ?? '').trim();
+    const problem = topicProblem(topic, enums);
+    if (problem) {
+      const issue = { code: topic ? 'E_BAD_TOPIC' : 'E_MISSING_TOPIC', message: problem, field: 'topic' };
+      return { topic, removed: false, fact: null, fatal: [issue], warn: [] };
+    }
+    if (!id) {
+      return { topic, removed: false, fact: null, fatal: [{ code: 'E_MISSING_ID', message: '删除需要事实 id（f-YYYYMMDD-HHmm-4hex）', field: 'id' }], warn: [] };
+    }
+    const facts = readTruthIfAny(store, topic);
+    const target = facts.find((f) => f.id === id) || null;
+    if (!target) {
+      return { topic, removed: false, fact: null, fatal: [{ code: 'E_NO_SUCH_FACT', message: `主题「${topic}」里没有 id 为 ${id} 的事实`, field: 'id' }], warn: [] };
+    }
+    if (input.dryRun === true) {
+      return { topic, removed: false, fact: target, fatal: [], warn: [] };
+    }
+    const kept = facts.filter((f) => f.id !== id);
+    // 压缩重写真源：删空就留空文件（和 init 的初始态一致），不留尾随空行
+    store.write(topicTruthFile(topic), kept.map((f) => JSON.stringify(f)).join('\n') + (kept.length ? '\n' : ''));
+    store.removeTree(factFile(topic, id));
+    writeTimeline(store, topic);
+    topicIdSet(topic).delete(id);
+    return { topic, removed: true, fact: target, fatal: [], warn: [] };
+  }
+
   function auditAndReport(title) {
     const result = audit();
     writeReport(store, reportLines({ title, vault: store.label, enums, now, rows: result.rows, topics: result.topics }));
@@ -162,7 +198,7 @@ function openSession(store, { enums, now = Date.now() }) {
     return { written, truthRows, skipped, topics, ...auditAndReport('重建后的事实库') };
   }
 
-  return { store, enums, now, ctx, record, audit, auditAndReport, rebuild };
+  return { store, enums, now, ctx, record, remove, audit, auditAndReport, rebuild };
 }
 
 export { localDay, localHHMM, randHex4, makeFact, openSession };

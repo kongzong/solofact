@@ -9,7 +9,7 @@
 //   <主题>/时间线.md / .html    可视化时间线
 // 根级只有 .obsidian/types.json（属性类型，全局共享）和 _体检.md（跨主题汇总的诊断报告）。
 // 没有主题 frontmatter 字段、没有 type——主题从目录名推断，同主题内 howmuch 天然同义。
-import { renderFactFile, parseFrontmatter } from './fact.js';
+import { renderFactFile } from './fact.js';
 
 const DIR = {
   facts: '事实',
@@ -191,6 +191,11 @@ function resetViews(store) {
 // Obsidian Bases 没有原生 timeline 视图类型，所以内核从该主题的事实抽一张 callout 笔记放到主题目录，
 // 宿主原生渲染。和 <主题>.base 一样是读模型：真源才是事实，重建会覆盖它。
 // 另外生成一份同数据的 HTML（时间线.html），给浏览器/预览面板用。
+//
+// 数据源是 _真源/facts.ndjson 而不是 事实/*.md（2026-10-15 改）：真源本来就是权威、字段比
+// frontmatter 还全；更重要的是录入路径因此不再需要预读全库事实正文——时间线曾是 snapshotStore
+// 全量预加载的唯一理由，去掉它，录入从 O(全库) 读数降为 O(该主题真源) 一次读。
+// 副作用是正向的：用户手改 事实/*.md 不再污染时间线（读模型只认真源，与"重建覆盖手改"同一逻辑）。
 function adaptFact(data) {
   return {
     date: data.when,
@@ -204,12 +209,10 @@ function adaptFact(data) {
 }
 
 function timelineFacts(store, topic) {
-  const dir = topicFacts(topic);
-  if (!store.exists(dir)) return [];
-  return store
-    .list(dir)
-    .filter((p) => p.endsWith('.md'))
-    .map((p) => adaptFact(parseFrontmatter(store.read(p)).data))
+  const file = topicTruthFile(topic);
+  if (!store.exists(file)) return [];
+  return readTruth(store, topic)
+    .map(adaptFact)
     .filter((f) => f.date)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)); // 倒序：新的在上
 }

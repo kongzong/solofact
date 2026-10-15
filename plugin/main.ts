@@ -5,7 +5,7 @@
 //
 // 形态：**主题 = 目录**（一堆事实的上级目录）。录入分两阶段：先选/建主题，再录纯 5W2H（必填 who/when/what）。
 // 没有 type 这一级——同主题内 howmuch 天然同义；没有主题 frontmatter 字段——主题从目录名推断。
-import { Modal, Notice, Plugin, Setting, debounce } from 'obsidian';
+import { Modal, Notice, Plugin, Setting, SuggestModal, debounce } from 'obsidian';
 import type { App, ButtonComponent, TFile, TextComponent } from 'obsidian';
 import { snapshotStore } from '../core/adapters/vault.js';
 import { DIR } from '../core/vault.js';
@@ -27,6 +27,7 @@ const FIELD_META: Record<string, { label: string; hint: string }> = {
   why: { label: '为何', hint: '目的或性质：推进决策 / 记录习惯 / 健康管理…' },
   how: { label: '方式', hint: '怎么发生的：会议 / 微信 / 付款 / 运动…' },
   howmuch: { label: '多少', hint: '一个数：资金可负（负=出）/ 体重 / 里程 / 读数…单位写进正文' },
+  tags: { label: '标签', hint: '可选，逗号分隔；候选来自本主题历史' },
 };
 
 const AUDIT_DELAY_MS = 2000;
@@ -41,6 +42,10 @@ export default class SolofactPlugin extends Plugin {
   // 防抖必须是**一个成员实例**：每次调用都新建 debounce() 的话，每个事件都拿到自己的计时器，
   // 2 秒后各跑一次体检——重建会连发几十个 modify，那就等于没有防抖
   private runDebounced: () => void = () => {};
+  // 会话级候选累积（2026-10-15，A4）：刚写入的文件要等 metadataCache 索引才进候选，
+  // 连记时下拉会缺刚记的值。壳自己记一份本会话见过的值，和缓存扫描合并——
+  // 纯展示层缓存，不是规则（规则只有一份，在 core）。
+  private historyExtra = new Map<string, Map<string, Set<string>>>();
 
   onload() {
     this.runDebounced = debounce(() => void this.runAudit(false), AUDIT_DELAY_MS, true);
@@ -55,7 +60,10 @@ export default class SolofactPlugin extends Plugin {
     this.addCommand({ id: 'solofact-record', name: '记一条事实', callback: () => this.openRecord() });
     this.addCommand({ id: 'solofact-audit', name: '跑体检（写 _体检.md）', callback: () => void this.runAudit(true) });
     this.addCommand({ id: 'solofact-rebuild', name: '从真源重建（会抹掉手改的 Markdown）', callback: () => this.confirmRebuild() });
-    this.addCommand({ id: 'solofact-open-views', name: '打开某个主题的事实视图（.base）', callback: () => void this.openFirstTopicView() });
+    this.addCommand({ id: 'solofact-open-views', name: '打开某个主题的事实视图（.base）', callback: () => this.openTopicViews() });
+    // 删除（2026-10-15）：对当前打开的事实笔记生效。手删 md 不管用——真源里那行还在，
+    // 下次重建会把它复活；这是唯一的产品化删除路径（core 的真源压缩，壳先预览后确认）。
+    this.addCommand({ id: 'solofact-forget', name: '删除这条事实（从真源移除，不可逆）', callback: () => void this.forgetActiveFact() });
 
     // 常驻体检：手改 Markdown 后没人再跑 体检，错误就静默——solocrm 那类失败的具体机制，这里堵掉
     const seen = (f: { path: string }) => this.onVaultChange(f.path);
@@ -64,7 +72,7 @@ export default class SolofactPlugin extends Plugin {
     this.registerEvent(v.on('modify', seen));
     this.registerEvent(v.on('delete', seen));
     // 改名只发 rename，不发 create/delete——事实文件一改名，wikilink 就断了，这正是体检要抓的
-    this.registerEvent(v.on('rename', (f, oldPath) => (seen(f), this.onVaultChange(oldPath))));
+    this.registerEvent(v.on('rename', (f, oldPath) => (seen(f), this.onVaultChange(oldPath), this.onMaybeTopicRename(f.path, oldPath))));
     this.app.workspace.onLayoutReady(() => this.scheduleAudit());
   }
 
@@ -92,13 +100,36 @@ export default class SolofactPlugin extends Plugin {
     return [...out].sort();
   }
 
+  // 录入成功后调用：把刚写的事实字段值记进会话级候选（A4）。
+  rememberHistory(topic: string, fact: Record<string, unknown>) {
+    let byField = this.historyExtra.get(topic);
+    if (!byField) this.historyExtra.set(topic, (byField = new Map()));
+    for (const field of ['who', 'time', 'where', 'why', 'how', 'howmuch', 'tags']) {
+      const v = fact[field];
+      if (v == null || v === '') continue;
+      let set = byField.get(field);
+      if (!set) byField.set(field, (set = new Set()));
+      for (const one of Array.isArray(v) ? v : [v]) {
+        const s = String(one).trim();
+        if (s) set.add(s);
+      }
+    }
+  }
+
+  // 会话级候选读取（A4）：historyOf 合并它，补上 metadataCache 还没索引到的刚录值。
+  extraHistoryOf(field: string, topic: string): string[] {
+    return [...(this.historyExtra.get(topic)?.get(field) ?? [])];
+  }
+
   private openRecord() {
     new RecordModal(this.app, this).open();
   }
 
-  private async openStore() {
+  private async openStore(bodies = false) {
     // 只取快照。主题目录的物理布局由 core 的 ensureTopic 在 record 时按需建，审计/重建不需要预建。
-    return snapshotStore(this.app.vault, { label: this.app.vault.getName() });
+    // bodies=false（录入默认）：时间线从真源渲染后，录入链路不再需要 事实/*.md 的正文，
+    // 全量预读整个库是白工——库越大录入越慢，而慢会劝退"坚持记"。体检/重建要逐条读回契约，才传 true。
+    return snapshotStore(this.app.vault, { label: this.app.vault.getName(), bodies });
   }
 
   // 录入：表单值 → core 的同一份 record()。致命错误不写一个字节，由表单标回具体输入框。
@@ -110,8 +141,7 @@ export default class SolofactPlugin extends Plugin {
       store = await this.openStore();
     } catch (e) {
       throw staged('读取库快照', e);
-    }
-    let result: { written: boolean; topic: string; fact: Record<string, unknown>; fatal: Issue[]; warn: Issue[] };
+    }    let result: { written: boolean; topic: string; fact: Record<string, unknown>; fatal: Issue[]; warn: Issue[] };
     try {
       result = openSession(store, { enums: enums5w2h, now: Date.now() }).record(input);
     } catch (e) {
@@ -137,7 +167,7 @@ export default class SolofactPlugin extends Plugin {
     try {
       do {
         this.dirtyStatus = false;
-        const store = await this.openStore();
+        const store = await this.openStore(true);
         const r = openSession(store, { enums: enums5w2h, now: Date.now() }).auditAndReport('事实库');
         const flush = await store.flush();
         this.reportConfig(flush, store);
@@ -164,7 +194,7 @@ export default class SolofactPlugin extends Plugin {
   // 重建确认框一点就关，异常在那里没人能看见——和录入同一个理由：不许静默
   async rebuildFromTruth() {
     try {
-      const store = await this.openStore();
+      const store = await this.openStore(true);
       const r = openSession(store, { enums: enums5w2h, now: Date.now() }).rebuild();
       const flush = await store.flush();
       this.reportConfig(flush, store);
@@ -187,18 +217,71 @@ export default class SolofactPlugin extends Plugin {
     ).open();
   }
 
-  // 视图现在按主题分（<主题>/<主题>.base），没有单一入口——打开按字母序第一个主题的 .base，没有则提示。
-  private async openFirstTopicView() {
+  // 视图现在按主题分（<主题>/<主题>.base），没有单一入口——列出全部主题让用户选，
+  // 不再"按字母序打开第一个"（2026-10-15：主题多了以后第一个基本不是你想看的）。
+  private openTopicViews() {
+    const topics = this.topicsOf();
+    if (!topics.length) {
+      new Notice('还没有任何主题——先记一条事实，主题目录和 .base 就建起来了', 5000);
+      return;
+    }
+    new TopicSuggestModal(this.app, topics, (topic) => void this.openFile(`${topic}/${topic}.base`)).open();
+  }
+
+  // 删除这条事实（2026-10-15）：对当前打开的事实笔记生效。壳只做接线——
+  // 预览（core dryRun）、确认、执行（core remove 真源压缩+删 md+刷时间线）、刷新体检。
+  private async forgetActiveFact() {
     try {
-      const topics = this.topicsOf();
-      if (!topics.length) {
-        new Notice('还没有任何主题——先记一条事实，主题目录和 .base 就建起来了', 5000);
+      const file = this.app.workspace.getActiveFile();
+      const m = file?.path.match(/^([^/]+)\/事实\/(f-\d{8}-\d{4}-[0-9a-f]{4})\.md$/);
+      if (!m) {
+        new Notice('先打开一条事实笔记（<主题>/事实/f-*.md），再运行「删除这条事实」', 6000);
         return;
       }
-      await this.openFile(`${topics[0]}/${topics[0]}.base`);
+      const [, topic, id] = m;
+      const store = await this.openStore();
+      const preview = openSession(store, { enums: enums5w2h, now: Date.now() }).remove({ topic, id, dryRun: true });
+      if (!preview.fact) {
+        new Notice(`没找到这条事实：${preview.fatal.map((f) => f.code).join(' ')}`, 6000);
+        return;
+      }
+      const f = preview.fact;
+      new ConfirmModal(
+        this.app,
+        '删除这条事实',
+        `将从「${topic}」的真源里移除，不可逆（恢复靠库自己的 git）：\n\n${String(f.when ?? '')} ${String(f.who ?? '')} — ${String(f.content ?? f.what ?? '')}\n\n事实 md 会一并删除，时间线随之刷新。`,
+        '确认删除',
+        async () => {
+          const s = await this.openStore();
+          const r = openSession(s, { enums: enums5w2h, now: Date.now() }).remove({ topic, id });
+          if (!r.removed) throw new Error(r.fatal.map((i) => `${i.code} — ${i.message}`).join('；'));
+          const flush = await s.flush();
+          this.reportConfig(flush, s);
+          new Notice(`✓ 已从「${topic}」删除 ${id}`, 5000);
+          this.scheduleAudit();
+        }
+      ).open();
     } catch (e) {
-      new Notice(staged('打开视图', e).message, 8000);
+      new Notice(staged('删除', e).message, 10000);
     }
+  }
+
+  // 主题=目录：用户在宿主里重命名/搬家主题目录，<主题>.base 里写死的 file.inFolder("旧名/事实")
+  // 不会跟着变——视图静默变空，而静默正是这个项目要消灭的东西。检测到主题目录改名就说明白，
+  // 并给一键修复（重建：按新目录名重生成 .base/时间线，真源不动）。
+  private onMaybeTopicRename(newPath: string, oldPath: string) {
+    // 主题目录的判据：新路径下直接带着 _真源/facts.ndjson，旧路径下没有了。
+    // 主题内部的文件改名（旧/新 top-level 相同）天然不匹配；_真源/事实 目录自身被改名也不匹配
+    // （它们的下一级才是 facts.ndjson，不是 _真源/facts.ndjson）——那种破坏重建也修不了，交给体检报。
+    const truthAt = (p: string) => this.app.vault.getAbstractFileByPath(`${p}/_真源/facts.ndjson`) != null;
+    if (!truthAt(newPath) || truthAt(oldPath)) return;
+    new ConfirmModal(
+      this.app,
+      '主题目录被重命名了',
+      `「${oldPath}」变成了「${newPath}」。该主题的 .base 里写死了旧目录名，不修复的话视图会静默变空。\n\n从真源重建会按新目录名重新生成 .base 和时间线（只重生成读模型，真源一个字节不动）。`,
+      '重建修复',
+      () => this.rebuildFromTruth()
+    ).open();
   }
 
   private async openFile(rel: string) {
@@ -236,6 +319,7 @@ class RecordModal extends Modal {
   private fieldHints: Record<string, string> = {};
   private errorEl!: HTMLElement;
   private okBtn!: ButtonComponent;
+  private keepBtn!: ButtonComponent;
   private cancelBtn!: ButtonComponent;
   private submitting = false;
   // 两阶段（2026-10-13 用户定调）：阶段一选/建主题，阶段二录事实。
@@ -379,12 +463,26 @@ class RecordModal extends Modal {
       })
     );
 
+    // tags（2026-10-15 补）：契约里有这个字段，表单以前不给——不对称。可选，逗号分隔，
+    // 候选来自本主题历史（frontmatter 里 tags 是数组，historyOf 已按元素逐个计）。
+    this.settings.tags = this.add(el, FIELD_META.tags.label, FIELD_META.tags.hint, 'tags', (s) =>
+      s.addText((t) => {
+        this.attachCombo(t.inputEl, this.historyOf('tags', topic));
+        if (d.tags != null) t.setValue(Array.isArray(d.tags) ? d.tags.join(', ') : String(d.tags));
+        t.onChange((v) => (d.tags = v));
+      })
+    );
+
     new Setting(el)
       .addButton((b) => {
         this.cancelBtn = b.setButtonText('取消').onClick(() => this.close());
       })
       .addButton((b) => {
-        this.okBtn = b.setButtonText('记下来').setCta().onClick(() => void this.submit());
+        // 连记（2026-10-15，A1）：记账/CRM 一天多笔，不用每笔重走两阶段。
+        this.keepBtn = b.setButtonText('记下来并继续').onClick(() => void this.submit(true));
+      })
+      .addButton((b) => {
+        this.okBtn = b.setButtonText('记下来').setCta().onClick(() => void this.submit(false));
       });
   }
 
@@ -410,11 +508,19 @@ class RecordModal extends Modal {
     input.setAttr('list', listId);
   }
 
-  // 历史候选：读 事实/*.md 的 frontmatter 里某个字段，去重。用宿主已索引的 metadataCache，同步可取。
-  // topic 给定时只取该主题目录下的历史——每个主题的 who/where/why/how/多少 词汇内聚，不跨主题混。
-  // 顺带接受数字值（howmuch 在 frontmatter 是 number）。
+  // 历史候选：读 事实/*.md 的 frontmatter 里某个字段，按出现频次排序（2026-10-15，A2——
+  // 常联系的人/常去的地点排在前面，聚合复用率才高；字母序把高频值埋了）。
+  // 用宿主已索引的 metadataCache，同步可取。topic 给定时只取该主题目录下的历史——
+  // 每个主题的 who/where/why/how/多少 词汇内聚，不跨主题混。顺带接受数字值和标签数组。
+  // 会话级累积（plugin.rememberHistory 写入）合并进来：刚录的文件还没进索引，别让候选缺了它。
   private historyOf(field: string, topic?: string): string[] {
-    const out = new Set<string>();
+    const counts = new Map<string, number>();
+    const bump = (v: unknown) => {
+      for (const one of Array.isArray(v) ? v : [v]) {
+        const s = String(one ?? '').trim();
+        if (s) counts.set(s, (counts.get(s) ?? 0) + 1);
+      }
+    };
     const prefix = topic ? `${topic}/事实/` : null;
     for (const f of this.app.vault.getFiles()) {
       if (!f.path.endsWith('.md')) continue;
@@ -424,30 +530,55 @@ class RecordModal extends Modal {
         continue;
       }
       const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
-      if (!fm) continue;
-      const val = fm[field];
-      if (val == null) continue;
-      const s = String(val).trim();
-      if (s) out.add(s);
+      if (fm) bump(fm[field]);
     }
-    return [...out].sort();
+    if (topic) {
+      for (const v of this.plugin.extraHistoryOf(field, topic)) {
+        if (!counts.has(v)) counts.set(v, 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'))
+      .map(([v]) => v);
   }
 
   // 一次点击只许跑一次写入，而且必须让按钮显示"写入中…"：
-  // 之前"点了没反应"就是异常被 void 掉＋按钮从不给反馈，两层叠加的结果
-  private async submit() {
+  // 之前"点了没反应"就是异常被 void 掉＋按钮从不给反馈，两层叠加的结果。
+  // keepOpen（2026-10-15，A1）：记完不关窗，清掉叙事/数值、时刻重置，场景字段留着，接着记。
+  private async submit(keepOpen = false) {
     if (this.submitting) return;
     this.submitting = true;
     this.setBusy(true);
     try {
-      const result = await this.plugin.record(this.draft);
+      const input: Record<string, unknown> = { ...this.draft };
+      // tags 在壳里拆成数组再交给 core：契约的 normalize 只认数组，字符串会连逗号一起
+      // 被引号包住变成一个标签（"a, b"），那既不是聚合也不是录入自由，是脏数据。
+      if (typeof input.tags === 'string') {
+        input.tags = input.tags
+          .split(/[,，、]/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      const result = await this.plugin.record(input);
       if (!result.ok) {
         this.showErrors(result.fatal);
         return;
       }
       this.clearErrors();
+      this.plugin.rememberHistory(result.topic, result.fact);
       const id = String(result.fact.id);
       for (const w of result.warn) new Notice(`⚠ ${w.code} — ${w.message}（已写入，告警不阻断；体检会一直报到它消失）`, 7000);
+      if (keepOpen) {
+        // 重渲染阶段二：候选刷新（含刚记的值，A4）、输入框归零、焦点回到正文
+        this.draft.what = '';
+        this.draft.howmuch = '';
+        this.draft.tags = input.tags;
+        this.draft.time = localHHMMText();
+        this.renderFactStage();
+        this.settings.what.settingEl.querySelector('textarea')?.focus();
+        new Notice(`✓ 已记 ${id}，继续记下一条`, 3000);
+        return;
+      }
       new Notice(`✓ ${result.topic}/事实/${id}.md`, 4000);
       this.close();
     } catch (e) {
@@ -462,7 +593,9 @@ class RecordModal extends Modal {
   private setBusy(busy: boolean) {
     this.okBtn?.setDisabled(busy);
     this.cancelBtn?.setDisabled(busy);
+    this.keepBtn?.setDisabled(busy);
     this.okBtn?.setButtonText(busy ? '写入中…' : '记下来');
+    this.keepBtn?.setButtonText(busy ? '写入中…' : '记下来并继续');
   }
 
   private showFatalCrash(message: string) {
@@ -549,6 +682,34 @@ class ConfirmModal extends Modal {
 
   onClose() {
     this.contentEl.empty();
+  }
+}
+
+// 主题选择器：列出现有主题，过滤 + 回车打开对应 <主题>.base。
+// 宿主原生 SuggestModal，零自绘——和"插件只写不看"一致：这里只是个打开文件的岔路口。
+class TopicSuggestModal extends SuggestModal<string> {
+  private all: string[];
+  private onPick: (topic: string) => void;
+
+  constructor(app: App, topics: string[], onPick: (topic: string) => void) {
+    super(app);
+    this.all = topics;
+    this.onPick = onPick;
+    // 不设 setPlaceholder：插件静态守卫锁着"输入框不塞占位提示"，选择器面板也不算例外——
+    // 空查询时本来就列出全部主题，不需要那行灰字。
+  }
+
+  getSuggestions(query: string): string[] {
+    const q = query.trim();
+    return q ? this.all.filter((t) => t.includes(q)) : this.all;
+  }
+
+  renderSuggestion(topic: string, el: HTMLElement) {
+    el.setText(topic);
+  }
+
+  onChooseSuggestion(topic: string) {
+    this.onPick(topic);
   }
 }
 

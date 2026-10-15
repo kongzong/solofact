@@ -2,10 +2,11 @@
 // 2026-10-13 真机事故的回归锁：插件壳用 snapshotStore（快照 + 暂存 + flush），
 // 用户在 Obsidian 里新建主题录第一条，时间线显示 0 条——排查后确认是**盘上 bundle 未热更新**
 // （Obsidian 运行时加载的是启动时的旧代码，commit 彼时还不刷时间线），内核路径本身是对的。
-// 本测试用内存假 vault 驱动 snapshotStore 真代码，锁死三件事：
-//   ① 暂存区对 list/read/exists 立即可见（writeFact 后 timelineFacts 扫得到新 md）；
+// 本测试用内存假 vault 驱动 snapshotStore 真代码，锁死四件事：
+//   ① 暂存区对 list/read/exists 立即可见（appendTruth 后时间线扫得到新行）；
 //   ② 录入即刷新时间线（commit 的 writeTimeline 渲染出刚录的事实，而非 0 条）；
-//   ③ flush 落盘的内容 = 最后一次渲染（建主题时的空时间线被 commit 的渲染覆盖）。
+//   ③ flush 落盘的内容 = 最后一次渲染（建主题时的空时间线被 commit 的渲染覆盖）；
+//   ④ 时间线从真源渲染（2026-10-15）：手改/删 事实/*.md 不污染时间线，录入也不需要预读事实正文。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -82,6 +83,39 @@ test('snapshotStore：既有主题录第二条，时间线从旧内容刷新', a
   s = openSession(store, { enums, now: NOW });
   assert.equal(s.record({ topic: 'A', who: '我', when: '2026-10-12', what: '第二条' }).written, true);
   assert.match(store.read('A/时间线.md'), /2 条/, '旧主题追加事实后时间线应刷新为 2 条');
+  await store.flush();
+  assert.match(disk.get('A/时间线.md'), /2 条/);
+});
+
+test('时间线只认真源：手改/删 事实/*.md 不污染时间线（2026-10-15 改从真源渲染）', async () => {
+  const { vault, disk } = fakeVault();
+  const store = await snapshotStore(vault, { label: 'fake' });
+  const s = openSession(store, { enums, now: NOW });
+  s.record({ topic: 'A', who: '我', when: '2026-10-13', what: '真源里的第一条' });
+  s.record({ topic: 'A', who: '我', when: '2026-10-12', what: '真源里的第二条' });
+  await store.flush();
+  // 用户手改了读模型（这正是"重建会抹掉手改"的场景），时间线不该跟着变
+  disk.set('A/事实/f-20261012-0000-aaaa.md', '---\nwho: 篡改者\n---\n篡改内容');
+  assert.match(store.read('A/时间线.md'), /2 条/);
+  assert.ok(!store.read('A/时间线.md').includes('篡改'), '时间线从真源渲染，手改的 md 影响不到它');
+});
+
+test('录入路径 bodies:false：不预读事实正文也能录（时间线从真源渲染后不再需要）', async () => {
+  const { vault, disk } = fakeVault();
+  // 先录一条制造既有事实正文
+  let store = await snapshotStore(vault, { label: 'fake' });
+  let s = openSession(store, { enums, now: NOW });
+  assert.equal(s.record({ topic: 'A', who: '我', when: '2026-10-13', what: '旧事实' }).written, true);
+  await store.flush();
+  // 再以 bodies:false 开快照（插件的录入路径）：事实 md 的正文不在预加载清单里
+  store = await snapshotStore(vault, { label: 'fake', bodies: false });
+  const loaded = store.loaded();
+  assert.ok(!loaded.some((p) => /\/事实\/[^/]+\.md$/.test(p)), 'bodies:false 不该预加载事实正文（录入变 O(主题真源)）');
+  assert.ok(loaded.some((p) => p === 'A/_真源/facts.ndjson'), '真源仍要预加载（录入要读它去重、时间线从它渲染）');
+  s = openSession(store, { enums, now: NOW });
+  const r = s.record({ topic: 'A', who: '我', when: '2026-10-12', what: '新事实' });
+  assert.equal(r.written, true, JSON.stringify(r.fatal));
+  assert.match(store.read('A/时间线.md'), /2 条/, '不读事实正文，时间线照样刷（数据源是真源）');
   await store.flush();
   assert.match(disk.get('A/时间线.md'), /2 条/);
 });

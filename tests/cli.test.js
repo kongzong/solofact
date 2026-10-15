@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,9 +146,69 @@ test('体检/重建：干净库退出码 0，体检写 _体检.md', () => {
   }
 });
 
+test('删除：默认只预览（退出码 0，真源和 md 一个字节都没动）', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    assert.equal(run(['记录', '--vault', dir, '--topic', '公司记账', '--who', '我', '--when', '2026-10-12', '第一笔']).status, 0);
+    const truth = readFileSync(path.join(dir, '公司记账/_真源/facts.ndjson'), 'utf8');
+    const id = JSON.parse(truth.trim()).id;
+    const r = run(['删除', '--vault', dir, '--topic', '公司记账', id]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /将要从「公司记账」删除/);
+    assert.match(r.stdout, /确认删除：重跑同一命令加 --yes/);
+    assert.equal(readFileSync(path.join(dir, '公司记账/_真源/facts.ndjson'), 'utf8'), truth, '预览不动真源');
+    assert.equal(readdirSync(path.join(dir, '公司记账/事实')).length, 1, '预览不删 md');
+  } finally {
+    cleanup();
+  }
+});
+
+test('删除：--yes 才真删（真源少一行、md 没了、主题计数减一、体检干净）', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    assert.equal(run(['记录', '--vault', dir, '--topic', '公司记账', '--who', '我', '--when', '2026-10-12', '第一笔']).status, 0);
+    assert.equal(run(['记录', '--vault', dir, '--topic', '公司记账', '--who', '我', '--when', '2026-10-13', '记错了']).status, 0);
+    const lines = readFileSync(path.join(dir, '公司记账/_真源/facts.ndjson'), 'utf8').trim().split('\n');
+    const target = JSON.parse(lines[1]);
+    const r = run(['删除', '--vault', dir, '--topic', '公司记账', target.id, '--yes']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /已从「公司记账」删除/);
+    assert.equal(readFileSync(path.join(dir, '公司记账/_真源/facts.ndjson'), 'utf8').trim().split('\n').length, 1);
+    assert.ok(!existsSync(path.join(dir, `公司记账/事实/${target.id}.md`)));
+    assert.match(run(['主题', '--vault', dir]).stdout, /公司记账 — 1 条/);
+    assert.equal(run(['体检', '--vault', dir]).status, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('删除：id 不存在 → 退出码 1 + E_NO_SUCH_FACT', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    assert.equal(run(['记录', '--vault', dir, '--topic', 'A', '--who', '我', '--when', '2026-10-12', '一条']).status, 0);
+    const r = run(['删除', '--vault', dir, '--topic', 'A', 'f-20261012-1200-ffff', '--yes']);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /E_NO_SUCH_FACT/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('删除：缺主题或 id → 退出码 2（参数错）', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    assert.equal(run(['记录', '--vault', dir, '--topic', 'A', '--who', '我', '--when', '2026-10-12', '一条']).status, 0);
+    assert.equal(run(['删除', '--vault', dir]).status, 2);
+    assert.equal(run(['删除', '--vault', dir, '--topic', 'A']).status, 2);
+  } finally {
+    cleanup();
+  }
+});
+
 test('help：无参数/--help → 退出码 0，含主题命令和符号约定', () => {
   const r = run(['--help']);
   assert.equal(r.status, 0);
   assert.match(r.stdout, /solofact 主题/);
   assert.match(r.stdout, /负=出、正=进/);
+  assert.match(r.stdout, /solofact 删除/, 'help 要列出删除命令（默认预览、--yes 执行）');
 });

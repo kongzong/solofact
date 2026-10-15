@@ -37,7 +37,16 @@ function parentDirs(rel) {
 
 // 同步的库内索引（路径来自 vault.getFiles()，正文按需预加载），加上一份"改了什么"的账。
 // open() 是唯一的异步入口：先把索引和正文取齐，之后的 exists/read/list 才敢是同步的。
-async function snapshotStore(vault, { label } = {}) {
+//
+// bodies=false 是录入路径专用（2026-10-15）：时间线改从真源渲染后，record 链路上已经没有
+// 任何地方需要读 事实/*.md 的正文了（ensureTopic 只问 exists、真源/ base 才是要读的）。
+// 全量预读在几百条时无感，几千条时每次录入都在把整个库拖进内存——录入变慢会直接劝退
+// "坚持记"，所以读面按操作收窄：record 传 false，audit/rebuild 传 true（体检要逐条读回契约）。
+// 选项不析构（opts?.x）：checkJs:false 下 TS 对带默认值的析构参数推断会丢属性，
+// 调用方的对象字面量会被误判成 excess property——壳的 typecheck 要过，别跟推断较劲。
+async function snapshotStore(vault, opts) {
+  const label = opts?.label;
+  const bodies = opts?.bodies !== false;
   const adapter = vault.adapter;
   const content = new Map();
   const files = new Set();
@@ -71,7 +80,7 @@ async function snapshotStore(vault, { label } = {}) {
     }
   }
 
-  for (const p of [...files].filter(needsContent)) {
+  for (const p of [...files].filter((p) => needsContent(p) && (bodies || !FACT_RE.test(p)))) {
     const f = vault.getAbstractFileByPath(p);
     content.set(p, f ? await vault.cachedRead(f) : await adapter.read(p));
   }
