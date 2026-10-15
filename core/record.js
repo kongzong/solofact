@@ -18,6 +18,8 @@ import {
   factFile,
   writeFact,
   writeTimeline,
+  writeTimelineSegment,
+  monthOf,
 } from './vault.js';
 import { scanVault, reportLines, writeReport, tally } from './scan.js';
 
@@ -96,10 +98,11 @@ function openSession(store, { enums, now = Date.now() }) {
   // 跑一次翻一倍，第二次重建就会报"真源里有重复 id"，那是我们自己造的脏数据。
   // timeline=false 是重建专用：逐条刷时间线是 O(n²)，重建末尾 resetViews 统一刷一次即可。
   // 录入路径必须刷——时间线是静态读模型，不刷就永远停在建主题那一刻的空态。
+  // 刷的是**那一条事实所属月份的那一段**（不是全主题）：单次成本只与该月条数有关，与总量无关。
   function commit(topic, fact, { toTruth = true, timeline = true } = {}) {
     if (toTruth) appendTruth(store, topic, fact);
     writeFact(store, topic, fact, enums);
-    if (timeline) writeTimeline(store, topic);
+    if (timeline) writeTimelineSegment(store, topic, monthOf(fact.when));
     topicIdSet(topic).add(fact.id);
   }
 
@@ -160,7 +163,7 @@ function openSession(store, { enums, now = Date.now() }) {
     // 压缩重写真源：删空就留空文件（和 init 的初始态一致），不留尾随空行
     store.write(topicTruthFile(topic), kept.map((f) => JSON.stringify(f)).join('\n') + (kept.length ? '\n' : ''));
     store.removeTree(factFile(topic, id));
-    writeTimeline(store, topic);
+    writeTimelineSegment(store, topic, monthOf(target.when));
     topicIdSet(topic).delete(id);
     return { topic, removed: true, fact: target, fatal: [], warn: [] };
   }

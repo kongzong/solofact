@@ -265,19 +265,16 @@ function timelineFacts(store, topic) {
 // Obsidian 各版本都原生渲染 callout + 列表，不依赖 mermaid 的 timeline 图表类型
 // （后者只在较新的 Obsidian 内置 mermaid 里才有，老版本会显示成原始代码）。
 // 富卡片版仍然在 时间线.html（浏览器/预览面板用）。
-function renderTimeline(facts) {
+// 一组事实 → callout 列表。**按日期倒序**（之前的实现按出现顺序分组，标题却写着"倒序"——
+// 真源是按录入顺序 append 的，先记昨天的再记今天的，页面上就变成了正序。这里显式排一次）。
+function timelineCallouts(facts) {
   const byDate = new Map();
   for (const f of facts) {
     if (!byDate.has(f.date)) byDate.set(f.date, []);
     byDate.get(f.date).push(f);
   }
-  const lines = [
-    '# 时间线',
-    '',
-    `> 内核从 \`_真源/\` 自动生成的可视化读模型（${facts.length} 条，按日期倒序）。在 Obsidian 里改这张图没用——重建会覆盖。`,
-    '',
-  ];
-  for (const [date, items] of byDate) {
+  const lines = [];
+  for (const [date, items] of [...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0]))) {
     lines.push(`> [!note] 📅 ${date}`);
     for (const f of items) {
       const meta = [
@@ -296,17 +293,36 @@ function renderTimeline(facts) {
   return lines.join('\n');
 }
 
+function renderTimeline(facts, opts = {}) {
+  const lines = [
+    opts.title ?? '# 时间线',
+    '',
+    opts.sub ??
+      `> 内核从 \`_真源/\` 自动生成的可视化读模型（${facts.length} 条，按日期倒序）。在 Obsidian 里改这张图没用——重建会覆盖。`,
+    '',
+  ];
+  return lines.join('\n') + timelineCallouts(facts) + '\n';
+}
+
 function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function renderTimelineHtml(facts) {
+  return timelineHtmlDoc({
+    sub: `${facts.length} 条事实 · 按日期倒序 · 由内核自动生成`,
+    sections: timelineSections(facts),
+  });
+}
+// 一组事实 → HTML 的 day 区块（日期倒序，与 md 那份保持一致）
+function timelineSections(facts) {
   const groups = new Map();
   for (const f of facts) {
     if (!groups.has(f.date)) groups.set(f.date, []);
     groups.get(f.date).push(f);
   }
-  const sections = [...groups.entries()]
+  return [...groups.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([date, items]) => {
       const cards = items
         .map((f) => {
@@ -326,12 +342,16 @@ function renderTimelineHtml(facts) {
       return `<section class="day"><div class="date">${escHtml(date)}</div><ul class="cards">${cards}</ul></section>`;
     })
     .join('');
+}
+
+// 一份时间线 HTML 文档。nav 是页面顶部的导航条（分段之间来回跳用），缺省没有。
+function timelineHtmlDoc({ title = '事实时间线', sub = '', nav = '', sections }) {
   return `<!doctype html>
 <html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>事实时间线</title>
+<title>${escHtml(title)}</title>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -339,6 +359,9 @@ function renderTimelineHtml(facts) {
     background: #0f1115; color: #e6e8ec; padding: 32px 16px 64px; }
   h1 { font-size: 20px; margin: 0 0 4px; }
   .sub { color: #8b93a1; margin: 0 0 28px; font-size: 13px; }
+  .nav { max-width: 720px; margin: 0 auto 26px; font-size: 13px; line-height: 1.9; }
+  .nav a { color: #8ab4ff; text-decoration: none; }
+  .nav a:hover { text-decoration: underline; }
   .timeline { max-width: 720px; margin: 0 auto; position: relative; padding-left: 18px; }
   .timeline::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px;
     background: linear-gradient(#3b82f6, #8b5cf6); }
@@ -355,18 +378,130 @@ function renderTimelineHtml(facts) {
 </style>
 </head>
 <body>
-  <h1>事实时间线</h1>
-  <p class="sub">${facts.length} 条事实 · 按日期倒序 · 由内核自动生成</p>
+  <h1>${escHtml(title)}</h1>
+  <p class="sub">${sub}</p>
+  ${nav ? `<div class="nav">${nav}</div>` : ''}
   <div class="timeline">${sections}</div>
 </body>
 </html>
 `;
 }
 
+// —— 时间线的分段（2026-10-15：这是为了让它在数据涨到几千条后仍能打开）——
+// 以前的形态是"一个主题一份 时间线.md"，倍数是线性的：npm run bench 实测 1000 条 43KB、
+// 10000 条 412KB（1 万行）、30000 条 1.2MB。Node 侧算它只要零点几秒，**卡的是宿主**——
+// Obsidian 打开一个 1MB 的 callout 列表才会真的僵住。而且每录一条都要重写整份文件，
+// 写盘 + 宿主重索引的成本随总量线性上涨（2000 条时每条录入已从 9ms 退化到 37ms）。
+//
+// 所以按月分段：每个月一份小文件，<主题>/时间线.md 变成索引页（尺寸恒定），
+// 录入一条只重写**那一个月** + 索引页 → 每次录入的成本只和那个月有多少条有关，与总量无关。
+const timelineSegFile = (topic, month) => `${topic}/时间线-${month}.md`;
+const timelineSegHtml = (topic, month) => `${topic}/时间线-${month}.html`;
+const monthOf = (date) => (/^\d{4}-\d{2}/.test(String(date ?? '')) ? String(date).slice(0, 7) : '未标日期');
+const monthLabel = (month) => (month === '未标日期' ? '未标日期' : `${month.slice(0, 4)} 年 ${Number(month.slice(5, 7))} 月`);
+const TIMELINE_RECENT = 20; // 索引页内嵌的最近条数——它是"打开就看到最近的事"的唯一保证，别调成 0
+
+// 事实按所属年月分组，键倒序（最新月份在前）
+function groupByMonth(facts) {
+  const segs = new Map();
+  for (const f of facts) {
+    const m = monthOf(f.date);
+    if (!segs.has(m)) segs.set(m, []);
+    segs.get(m).push(f);
+  }
+  return new Map([...segs.entries()].sort((a, b) => b[0].localeCompare(a[0])));
+}
+
+function renderTimelineMonth(topic, month, facts, total) {
+  const file = `时间线-${month}.md`;
+  const sub = `> [← 时间线索引](时间线.md)　|　本月 **${facts.length}** 条 · 全主题 ${total} 条\n> \n> 这是自动生成的可视化读模型，在这里改没用——重建会覆盖。`;
+  return renderTimeline(facts, { title: `# 时间线 · ${monthLabel(month)}`, sub });
+}
+
+// 索引页：月 份清单 + 最近若干条。**尺寸恒定**是它的设计目标（不随总量上涨）。
+function renderTimelineIndex(topic, segs, facts) {
+  const months = [...segs.keys()];
+  const total = facts.length;
+  const lines = [
+    '# 时间线',
+    '',
+    '> 这是**索引页**（自动生成）。时间线按月分段存放——单文件会随着事实变多涨到打不开，',
+    '> 分段之后每次录入只重写那一个月。在这里改没用，重建会覆盖。',
+    '',
+    `- 共 **${total}** 条事实，跨 **${months.length}** 个月${months.length ? `（${months.at(-1)} ~ ${months[0]}）` : ''}`,
+    '- 全览：[时间线.html](时间线.html)（浏览器打开）',
+    '',
+    '## 按月打开',
+    '',
+  ];
+  for (const [month, list] of segs) {
+    // 不编码：Obsidian 的 md 链接按 vault 内的名字解析，中文路径百分号编码反而认不出来
+    lines.push(`- [${monthLabel(month)} · ${list.length} 条](时间线-${month}.md)`);
+  }
+  if (!months.length) lines.push('- （还没有事实）');
+  const recent = [...facts].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, TIMELINE_RECENT);
+  lines.push('', `## 最近 ${TIMELINE_RECENT} 条`, '');
+  lines.push(recent.length ? timelineCallouts(recent) : '_没有事实。_', '');
+  if (total > recent.length) {
+    lines.push(`> [!tip] 更早的 ${total - recent.length} 条在上面对应的月份里。`, '');
+  }
+  return lines.join('\n');
+}
+
+function renderTimelineSegHtml(topic, month, facts, total) {
+  return timelineHtmlDoc({
+    title: `时间线 · ${monthLabel(month)}`,
+    sub: `本月 ${facts.length} 条 · 全主题 ${total} 条 · 由内核自动生成`,
+    nav: '<a href="时间线.html">← 索引</a>',
+    sections: timelineSections(facts),
+  });
+}
+
+function renderTimelineIndexHtml(topic, segs, facts) {
+  const months = [...segs.keys()];
+  return timelineHtmlDoc({
+    sub: `共 ${facts.length} 条事实 · 跨 ${months.length} 个月 · 按月分段`,
+    nav: months
+      .map((m) => `<a href="${encodeURI(`时间线-${m}.html`)}">${monthLabel(m)}</a>（${segs.get(m).length}）`)
+      .join(' · ') || '（还没有事实）',
+    sections: '',
+  });
+}
+
+// 全量：所有分段 + 两个索引 + 清掉已经没有事实的月份文件（比如那个被删空的月）
 function writeTimeline(store, topic) {
   const facts = timelineFacts(store, topic);
-  store.write(topicTimelineMd(topic), renderTimeline(facts));
-  store.write(topicTimelineHtml(topic), renderTimelineHtml(facts));
+  const segs = groupByMonth(facts);
+  for (const [month, list] of segs) {
+    store.write(timelineSegFile(topic, month), renderTimelineMonth(topic, month, list, facts.length));
+    store.write(timelineSegHtml(topic, month), renderTimelineSegHtml(topic, month, list, facts.length));
+  }
+  const want = new Set([...segs.keys()].flatMap((m) => [timelineSegFile(topic, m), timelineSegHtml(topic, m)]));
+  for (const p of store.listReal(topic)) {
+    const name = p.split('/').pop();
+    if (/^时间线-.+\.(md|html)$/.test(name) && !want.has(p)) store.removeTree(p);
+  }
+  store.write(topicTimelineMd(topic), renderTimelineIndex(topic, segs, facts));
+  store.write(topicTimelineHtml(topic), renderTimelineIndexHtml(topic, segs, facts));
+}
+
+// 段级：只重写**被那一条事实影响的月份** + 索引页。录入/删除走这条，成本与总量无关。
+// html 索引也重写（它只有链接，尺寸恒定），但 html 分段只动当月那一份。
+function writeTimelineSegment(store, topic, month) {
+  const facts = timelineFacts(store, topic);
+  const segs = groupByMonth(facts);
+  const list = segs.get(month) || [];
+  const file = timelineSegFile(topic, month);
+  const html = timelineSegHtml(topic, month);
+  if (!list.length) {
+    if (store.exists(file)) store.removeTree(file);
+    if (store.exists(html)) store.removeTree(html);
+  } else {
+    store.write(file, renderTimelineMonth(topic, month, list, facts.length));
+    store.write(html, renderTimelineSegHtml(topic, month, list, facts.length));
+  }
+  store.write(topicTimelineMd(topic), renderTimelineIndex(topic, segs, facts));
+  store.write(topicTimelineHtml(topic), renderTimelineIndexHtml(topic, segs, facts));
 }
 
 function readTruth(store, topic) {
@@ -409,7 +544,12 @@ export {
   writeTypes,
   resetViews,
   writeTimeline,
+  writeTimelineSegment,
+  monthOf,
+  timelineFacts,
   renderTimeline,
+  renderTimelineIndex,
+  renderTimelineMonth,
   renderTimelineHtml,
   adaptFact,
   readTruth,
