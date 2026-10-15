@@ -6,11 +6,12 @@
 // 组装内容：SKILL.md（根）+ cli/ + core/ + contract/——CLI 按自身位置解析路径，
 // 所以在 skills/ 目录下任何位置都能跑。**不含 vault**：数据与工具分离，
 // 覆盖更新这个包永远不会碰用户的数据。
-import { rmSync, cpSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { run, hasCmd } from './run.mjs';
+import { copyFileTo, copyTreeTo } from './copy.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -24,9 +25,9 @@ export async function main() {
   rmSync(skillDir, { recursive: true, force: true });
 
   // SKILL.md 提到根（skill 规范的硬要求），cli/core/contract 作为它的子目录
-  cpSync(path.join(ROOT, 'skill', 'SKILL.md'), path.join(skillDir, 'SKILL.md'));
+  copyFileTo(path.join(ROOT, 'skill', 'SKILL.md'), path.join(skillDir, 'SKILL.md'));
   for (const d of ['cli', 'core', 'contract']) {
-    cpSync(path.join(ROOT, d), path.join(skillDir, d), { recursive: true });
+    copyTreeTo(path.join(ROOT, d), path.join(skillDir, d));
   }
 
   if (!(await hasCmd('tar'))) throw new Error('找不到 tar 命令');

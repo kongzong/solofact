@@ -4,11 +4,12 @@
 //   2. esbuild 把最新插件打进 vault（保证 zip 里的插件 = 当前源码）
 //   3. 体检质量门：致命 ≠ 0 拒绝出包（发布物带致命错误比晚发一天严重）
 //   4. zip，排除 Obsidian 运行时的本机状态文件（app.json/workspace.json 等）
-import { rmSync, cpSync, existsSync } from 'node:fs';
+import { rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { run, hasCmd } from './run.mjs';
+import { copyTreeTo } from './copy.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -45,8 +46,7 @@ export async function main() {
   if (!(await hasCmd('zip'))) throw new Error('找不到 zip 命令——apt install zip 或改用其它打包方式');
   const stage = path.join(DIST, `solofact-vault-${version}`);
   rmSync(stage, { recursive: true, force: true });
-  cpSync(path.join(ROOT, VAULT), stage, {
-    recursive: true,
+  copyTreeTo(path.join(ROOT, VAULT), stage, {
     filter: (src) => {
       const rel = path.relative(path.join(ROOT, VAULT), src);
       return !LOCAL_STATE.includes(rel) && path.basename(src) !== '.DS_Store';

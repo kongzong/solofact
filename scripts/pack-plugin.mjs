@@ -5,8 +5,9 @@
 import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { buildPlugin } from './build-plugin.mjs';
+import { copyTreeTo } from './copy.mjs';
 import { run, hasCmd } from './run.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,7 +48,7 @@ export async function main() {
   // 但那样解压出来是带版本号的目录，用户还得改名。折中：把 stage 目录改名为 solofact/ 再打。
   const friendly = path.join(DIST, 'solofact');
   rmSync(friendly, { recursive: true, force: true });
-  cpSync(stage, friendly, { recursive: true });
+  copyTreeTo(stage, friendly);
   rmSync(stage, { recursive: true, force: true });
   await run('zip', ['-r', '-q', path.basename(zip), 'solofact', '-x', '*.DS_Store'], { cwd: DIST });
   rmSync(friendly, { recursive: true, force: true });

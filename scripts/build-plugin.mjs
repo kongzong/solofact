@@ -3,9 +3,10 @@
 // 迟早出现"开发库能跑、分发包是旧的"这种灵异事故。
 // 为什么必须打包：Obsidian 只认插件目录里的 main.js，而 core/ 是 ESM；'obsidian' 保持
 // external——宿主运行时才注入真 app 实例，打进去了反而拿不到。
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import esbuild from 'esbuild';
+import { copyFileTo } from './copy.mjs';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
@@ -46,7 +47,9 @@ export function assertPluginBundle(outDir, expectId) {
 export async function buildPlugin(outDir, { expectId } = {}) {
   mkdirSync(outDir, { recursive: true });
   await esbuild.build(optsFor(outDir));
-  copyFileSync(path.join(ROOT, 'plugin', 'manifest.json'), path.join(outDir, 'manifest.json'));
+  // 走 scripts/copy.mjs 的 read+write，不用 copyFileSync：某些环境会把 copyfile 直接拒掉
+  // （EPERM），而且**拒之前先把目标删了**——曾经就因为这个丢了 manifest.json。
+  copyFileTo(path.join(ROOT, 'plugin', 'manifest.json'), path.join(outDir, 'manifest.json'));
   assertPluginBundle(outDir, expectId);
   return path.join(outDir, 'main.js');
 }
