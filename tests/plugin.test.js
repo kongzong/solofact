@@ -178,3 +178,14 @@ test('5W2H 表单：两阶段（先主题后事实），必填 who/when/what，�
   // 用户定调（2026-10-13）：字段描述已在行内，输入框里不再放占位提示（唯一例外是主题框的阶段一引导）。
   assert.ok((text.match(/setPlaceholder\(/g) ?? []).length <= 1, '5W2H 输入框不设占位符：提示走字段描述，不塞进输入框');
 });
+
+test('不留空白按钮：addButton 回调不许条件早退（2026-10-15 真机：编辑表单漏出空壳按钮）', () => {
+  const text = readFileSync(path.join(root, 'plugin', 'main.ts'), 'utf8');
+  // Obsidian 的 Setting.addButton 先建 DOM 再执行回调：回调里 if (...) return 只是不给它文字，
+  // 按钮照样渲染成一个空壳——编辑模式隐藏「记下来并继续」时就是这么漏出来的，用户当场看到
+  // 一颗没字的按钮。想隐藏按钮必须整颗不建（不调用 addButton），所以这里从源头禁掉回调早退。
+  const bad = [...text.matchAll(/\.addButton\(\(([^)]*)\) => \{\s*(?:\/\/[^\n]*\s*)*if\s*\(/g)];
+  assert.deepEqual(bad.map((m) => m[0].slice(0, 40)), [], 'addButton 的回调不许以条件早退——会留下没有文字的空按钮');
+  // 反向确认那处确实是"整颗不建"而不是"建了不说话"
+  assert.match(text, /if \(!this\.editing\) \{[\s\S]{0,220}?bar\.addButton\(/, '连记按钮必须是编辑模式下整颗不建');
+});

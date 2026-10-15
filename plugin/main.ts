@@ -595,19 +595,23 @@ class RecordModal extends Modal {
       })
     );
 
-    new Setting(el)
-      .addButton((b) => {
-        this.cancelBtn = b.setButtonText('取消').onClick(() => this.close());
-      })
-      .addButton((b) => {
-        // 连记（2026-10-15，A1）：记账/CRM 一天多笔，不用每笔重走两阶段。
-        // 编辑模式不给这个按钮：一次编辑对应一条事实，"保存完接着再存一份改稿"没有语义。
-        if (this.editing) return;
+    // 按钮条：取消 → （连记）→ 主按钮。顺序即视觉顺序，所以连记那颗只能整颗不建。
+    const bar = new Setting(el).addButton((b) => {
+      this.cancelBtn = b.setButtonText('取消').onClick(() => this.close());
+    });
+    // 「记下来并继续」在编辑模式下**必须不调用 addButton** 而不是在回调里 return：
+    // addButton 先建 DOM 再执行回调，回调 return 只让它没有文字——按钮照样躺在界面上
+    // （2026-10-15 真机：编辑表单右下角多出一颗空壳按钮，就是这么来的）。
+    if (!this.editing) {
+      // 连记（A1）：记账/CRM 一天多笔，不用每笔重走两阶段。
+      // 编辑模式不给这颗：一次编辑对应一条事实，"保存完再存一份改稿"没有语义。
+      bar.addButton((b) => {
         this.keepBtn = b.setButtonText('记下来并继续').onClick(() => void this.submit(true));
-      })
-      .addButton((b) => {
-        this.okBtn = b.setButtonText(this.editing ? '保存修改' : '记下来').setCta().onClick(() => void this.submit(false));
       });
+    }
+    bar.addButton((b) => {
+      this.okBtn = b.setButtonText(this.editing ? '保存修改' : '记下来').setCta().onClick(() => void this.submit(false));
+    });
   }
 
   // 一行就是一个输入框：name 是字段名，hint 是它的说明（清空错误时还原回去），key 是 settings 的索引。
