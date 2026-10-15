@@ -3,7 +3,7 @@
 //   没有 type、没有单位校验，同主题内 howmuch 天然同义，id 只需主题内唯一。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -149,6 +149,26 @@ test('重建按主题从各自真源重生成读模型', () => {
     assert.equal(readdirSync(path.join(dir, 'B/事实')).length, 1);
     assert.ok(existsSync(path.join(dir, 'A/A.base')), 'A.base 应在');
     assert.match(readFileSync(path.join(dir, 'A/时间线.md'), 'utf8'), /1 条/, '重建末尾统一刷时间线（逐条不刷，末尾 resetViews 一次）');
+  } finally {
+    cleanup();
+  }
+});
+
+test('重建清掉旧名 .base 孤儿（主题目录被改名后，宿主不会跟着改文件名）', () => {
+  // 2026-10-15 真机复现：用户把「一人公司CRM业务」目录改名「OPC CRM业务」——
+  // 目录里留着旧名的 .base，inFolder 写死旧目录名，Bases 面板两个入口一个打开是空的。
+  const { dir, cleanup } = tmpVault();
+  try {
+    const store = fsAdapter(dir);
+    const s = openSession(store, { enums, now: NOW });
+    s.record({ topic: '旧主题', who: '我', when: '2026-09-01', what: 'x' });
+    // 模拟 Obsidian 里改目录名：整个目录搬到新名，里面的文件（含 .base）名字不变
+    renameSync(path.join(dir, '旧主题'), path.join(dir, '新主题'));
+    const r = s.rebuild();
+    assert.equal(r.fatal.length, 0, JSON.stringify(r.fatal));
+    const bases = readdirSync(path.join(dir, '新主题')).filter((f) => f.endsWith('.base'));
+    assert.deepEqual(bases, ['新主题.base'], `应只剩新名 base，实际：${bases.join(', ')}`);
+    assert.match(readFileSync(path.join(dir, '新主题/新主题.base'), 'utf8'), /inFolder\("新主题\/事实"\)/, '新 base 的 inFolder 应写新目录名');
   } finally {
     cleanup();
   }
