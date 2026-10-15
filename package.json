@@ -2,7 +2,7 @@
   "name": "solofact",
   "private": true,
   "type": "module",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Obsidian 上的事实层：契约 + 纯函数核 + 写入路径 CLI",
   "license": "MIT",
   "bin": {
