@@ -295,6 +295,23 @@ export default class SolofactPlugin extends Plugin {
   // （core 保证剥 id/time/recorded、when 照旧）→ 打开表单直接进阶段二（主题从路径
   // 解析后单设进草稿）。写入仍走 record() 正门：新 id 自动生成，真源/md/时间线/
   // 视图四层一致——这就是"插件复制"和"Obsidian 自带复制"的全部区别。
+  //
+  // 底稿**从真源按 (主题, id) 取**，不读 md（2026-10-15 真机教训后改）：真源才是事实，
+  // md 是读模型。用户手改 md 后它可能缺字段，拿它当底稿会被校验拒掉，而最需要编辑的
+  // 偏偏就是被改坏的那条——等于把纠正路径堵死，还和"手改 md 不算数"自相矛盾。
+  // 复制和编辑共用这一份：底稿怎么来只能有一个实现。
+  private async draftFromTruth(topic: string, id: string) {
+    const draft = openSession(await this.openStore(), { enums: enums5w2h, now: Date.now() }).duplicateDraftFromTruth(topic, id);
+    if (!draft) {
+      new Notice(
+        `真源里没有这条事实（${topic} / ${id}）——它可能是孤儿文件（手改过 id 或文件名）。跑一次「从真源重建」，或跑体检看看`,
+        9000
+      );
+      return null;
+    }
+    return draft;
+  }
+
   private async duplicateActiveFact() {
     try {
       const file = this.app.workspace.getActiveFile();
@@ -303,22 +320,16 @@ export default class SolofactPlugin extends Plugin {
         new Notice('先打开一条事实笔记（<主题>/事实/f-*.md），再运行「复制这条事实」', 6000);
         return;
       }
-      const [, topic] = m;
-      // 读盘拿用户眼前这份（快照有时效差），解析+草稿在 core（session 是壳碰内核唯一的门）
-      const draft = openSession(await this.openStore(), { enums: enums5w2h, now: Date.now() }).duplicateDraftFromMarkdown(
-        await this.app.vault.read(file)
-      );
-      if (!draft) {
-        new Notice('这条笔记读不回契约，复制不了——先修它，或跑次体检看看', 8000);
-        return;
-      }
+      const [, topic, id] = m;
+      const draft = await this.draftFromTruth(topic, id);
+      if (!draft) return;
       new RecordModal(this.app, this, { ...draft, topic }).open();
     } catch (e) {
       new Notice(staged('复制', e).message, 10000);
     }
   }
 
-  // 编辑这条事实（2026-10-15）：和复制同一个底稿来源（duplicateDraftFromMarkdown），
+  // 编辑这条事实（2026-10-15）：和复制同一个底稿来源（draftFromTruth → 真源），
   // 差别只在提交之后——编辑要顺手把旧稿删掉（editing 传给表单，保存路径负责收尾）。
   // 表单里已经明说"另存为新事实 + 删旧稿、id 会变"，所以这里不再弹确认框：
   // 表单本身就是核对界面，再确认一次是把噪音当安全。
@@ -331,13 +342,8 @@ export default class SolofactPlugin extends Plugin {
         return;
       }
       const [, topic, id] = m;
-      const draft = openSession(await this.openStore(), { enums: enums5w2h, now: Date.now() }).duplicateDraftFromMarkdown(
-        await this.app.vault.read(file)
-      );
-      if (!draft) {
-        new Notice('这条笔记读不回契约，编辑不了——先修它，或跑次体检看看', 8000);
-        return;
-      }
+      const draft = await this.draftFromTruth(topic, id);
+      if (!draft) return;
       new RecordModal(this.app, this, { ...draft, topic }, { topic, id }).open();
     } catch (e) {
       new Notice(staged('编辑', e).message, 10000);
@@ -503,7 +509,7 @@ class RecordModal extends Modal {
     // （别处若链接过这条会断），也得知道取消是零副作用的——这两件事不知道，编辑就不敢点。
     if (this.editing) {
       el.createEl('p', {
-        text: '编辑 = 以改好的内容另存为新事实，再删掉旧稿（真源只追加，旧内容不会被改写）。保存后 id 会变，别处若有指向旧稿的链接要更新；取消则原封不动。',
+        text: '编辑 = 以改好的内容另存为新事实，再删掉旧稿（真源只追加，旧内容不会被改写）。底稿取自真源——你若手改过这条的 Markdown，这里显示的是真源里那条，以你改完保存的为准。保存后 id 会变，别处若有指向旧稿的链接要更新；取消则原封不动。',
         attr: { style: 'color:var(--text-muted);font-size:0.9em;margin:0 0 10px;line-height:1.5;' },
       });
     }

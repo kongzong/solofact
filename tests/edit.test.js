@@ -22,10 +22,10 @@ function tmpVault() {
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-// 走一遍壳的编辑动作：读旧稿 md → session 门生成草稿 → 改字段 → 录新 → 删旧
-function editFlow(s, store, topic, patch) {
-  const draft = s.duplicateDraftFromMarkdown(store.read(store.list(`${topic}/事实`)[0]));
-  assert.ok(draft, '旧稿应能生成草稿');
+// 走一遍壳的编辑动作：按 (主题, id) 从真源取底稿（session 门）→ 改字段 → 录新 → 删旧
+function editFlow(s, store, topic, oldId, patch) {
+  const draft = s.duplicateDraftFromTruth(topic, oldId);
+  assert.ok(draft, '真源里那条应能生成底稿');
   const saved = s.record({ ...draft, ...patch, topic });
   assert.equal(saved.written, true, JSON.stringify(saved.fatal));
   return { draft, saved };
@@ -38,7 +38,7 @@ test('编辑闭环：改完另存为新事实 + 删旧稿 → 真源 / md / 时�
     const s = openSession(store, { enums, now: NOW });
     const oldId = String(s.record({ topic: '家庭记账', who: '我', when: '2026-10-12', what: '早餐', howmuch: 9 }).fact.id);
 
-    const { saved } = editFlow(s, store, '家庭记账', { howmuch: -9, what: '早餐（补上金额）' });
+    const { saved } = editFlow(s, store, '家庭记账', oldId, { howmuch: -9, what: '早餐（补上金额）' });
     const gone = s.remove({ topic: '家庭记账', id: oldId });
     assert.equal(gone.removed, true, JSON.stringify(gone.fatal));
 
@@ -77,7 +77,7 @@ test('编辑的收尾失败不丢数据：删旧稿用错 id → 副本还在（
     const store = fsAdapter(dir);
     const s = openSession(store, { enums, now: NOW });
     const oldId = String(s.record({ topic: '家庭记账', who: '我', when: '2026-10-12', what: '早餐', howmuch: 9 }).fact.id);
-    const { saved } = editFlow(s, store, '家庭记账', { howmuch: -9 });
+    const { saved } = editFlow(s, store, '家庭记账', oldId, { howmuch: -9 });
 
     const wrong = s.remove({ topic: '家庭记账', id: 'f-20261012-0000-ffff' });
     assert.equal(wrong.removed, false);
@@ -103,7 +103,7 @@ test('编辑中途取消 = 零副作用（草稿不落盘，旧稿一个字节�
     const s = openSession(store, { enums, now: NOW });
     const { fact } = s.record({ topic: '家庭记账', who: '我', when: '2026-10-12', what: '早餐', howmuch: 9 });
     const before = store.read('家庭记账/_真源/facts.ndjson');
-    const draft = s.duplicateDraftFromMarkdown(store.read(store.list('家庭记账/事实')[0]));
+    const draft = s.duplicateDraftFromTruth('家庭记账', String(fact.id));
     assert.ok(draft);
     // 只生成草稿、什么都不录
     assert.equal(store.read('家庭记账/_真源/facts.ndjson'), before, '生成草稿不写真源');

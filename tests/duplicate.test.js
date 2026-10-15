@@ -86,7 +86,7 @@ test('duplicateDraft：不变量——任何输入下输出都没有 id/time/rec
   }
 });
 
-// ── 集成：壳走的那道门（session.duplicateDraftFromMarkdown）──
+// ── 集成：壳走的那道门（session.duplicateDraftFromTruth）──
 // 纯函数测约定，这里测用户可感的最终结果：副本草稿真喂进 record()，录得进去、不撞 id。
 const NOW2 = new Date('2026-10-15T09:00:00').getTime();
 
@@ -102,10 +102,9 @@ test('集成：复制闭环——草稿喂 record() 录得进去，新 id 不撞
     const s = openSession(store, { enums, now: NOW2 });
     const original = s.record({ topic: '人情来往', who: '腾讯·老王', when: '2026-10-12', what: '聊了 Q4 框架', howmuch: 500 });
     const originalId = String(original.fact.id);
-    // 壳的动作：读用户眼前这份 md → 过 session 的门生成草稿（解析在 core，不在壳）
-    const factFileRel = store.list('人情来往/事实')[0];
-    const draft = s.duplicateDraftFromMarkdown(store.read(factFileRel));
-    assert.ok(draft, '正常事实 md 应生成草稿');
+    // 壳的动作：从文件路径解析出 (主题, id) → 过 session 的门按真源取底稿
+    const draft = s.duplicateDraftFromTruth('人情来往', originalId);
+    assert.ok(draft, '真源里那条应生成底稿');
     assert.equal(draft.when, '2026-10-12', 'when 照旧，等用户自己改');
     // 用户只改一个字段就录——模拟"改完点记下来"
     draft.howmuch = 800;
@@ -126,13 +125,42 @@ test('集成：复制闭环——草稿喂 record() 录得进去，新 id 不撞
   }
 });
 
-test('集成：读不回契约的 md → 门返回 null（壳该提示先修，而不是拿半截数据去录）', () => {
+test('集成：真源里没有这条 → 门返回 null（孤儿 md：手改过 id/文件名，壳提示先跑重建）', () => {
   const { dir, cleanup } = tmpVault();
   try {
     const store = fsAdapter(dir);
     const s = openSession(store, { enums, now: NOW2 });
-    assert.equal(s.duplicateDraftFromMarkdown('---\nid: f-20261012-0930-a1b2\nfrontmatter 未闭合'), null);
-    assert.equal(s.duplicateDraftFromMarkdown('没有 frontmatter 的纯文本'), null);
+    s.record({ topic: '人情来往', who: '我', when: '2026-10-12', what: 'x' });
+    assert.equal(s.duplicateDraftFromTruth('人情来往', 'f-20261012-0000-ffff'), null, '真源里没有这个 id');
+    assert.equal(s.duplicateDraftFromTruth('没这个主题', 'f-20261012-0000-ffff'), null, '连主题都没有');
+  } finally {
+    cleanup();
+  }
+});
+
+test('集成：md 被手改成缺字段，底稿仍来自真源——坏记录也能编辑（2026-10-15 真机回归）', () => {
+  // 真机：用户手改 md 把 what 清空 → 旧实现拿 md 当底稿 → validate 判 E_MISSING_REQUIRED
+  // → 编辑/复制提示"读不了契约"。而**最需要编辑的偏偏是记错的那条**：把想改内容的人挡在
+  // 门外，等于堵死纠正路径，还和"手改 md 不算数"自相矛盾（既然不算数就不该拿它当底稿）。
+  const { dir, cleanup } = tmpVault();
+  try {
+    const store = fsAdapter(dir);
+    const s = openSession(store, { enums, now: NOW2 });
+    const id = String(s.record({ topic: '一人公司CRM业务', who: '我', when: '2026-10-15', what: '4444' }).fact.id);
+    // 模拟手改：清空 md 的 what（真源那行不动）
+    const rel = store.list('一人公司CRM业务/事实')[0];
+    store.write(rel, store.read(rel).replace(/^what:.*$/m, 'what:'));
+    // 手改的后果照旧被体检抓到（体检读 md）——这是应有的，不是要抹掉的
+    assert.ok(s.audit().fatal.some((f) => f.code === 'E_MISSING_REQUIRED'), '手改 md 的后果仍被体检抓到');
+    // 但编辑/复制的门走真源：底稿完整，坏记录照样能改好
+    const draft = s.duplicateDraftFromTruth('一人公司CRM业务', id);
+    assert.ok(draft, '底稿取自真源，不被手改的 md 影响');
+    assert.equal(draft.what, '4444', '拿到的是真源里的正文');
+    const saved = s.record({ ...draft, topic: '一人公司CRM业务', what: '吃了个饭' });
+    assert.equal(saved.written, true, JSON.stringify(saved.fatal));
+    assert.equal(s.remove({ topic: '一人公司CRM业务', id }).removed, true);
+    assert.match(store.read('一人公司CRM业务/_真源/facts.ndjson'), /吃了个饭/);
+    assert.equal(s.audit().fatal.length, 0, '编辑完体检干净——坏记录被修好了');
   } finally {
     cleanup();
   }

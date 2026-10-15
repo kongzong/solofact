@@ -5,7 +5,7 @@
 //
 // 主题 = 目录：每条 record() 带一个 topic，落盘进 <topic>/_真源/facts.ndjson + <topic>/事实/。
 // 没有 type、没有主题注册表——同主题内 howmuch 天然同义，type 这一级整个去掉。
-import { makeId, parseFactFile, duplicateDraft, parseDate, validate } from './fact.js';
+import { makeId, duplicateDraft, parseDate, validate } from './fact.js';
 import {
   DIR,
   ensureTopic,
@@ -198,22 +198,25 @@ function openSession(store, { enums, now = Date.now() }) {
     return { written, truthRows, skipped, topics, ...auditAndReport('重建后的事实库') };
   }
 
-  // 复制这条事实（2026-10-15）：以一篇事实 markdown 为底稿，生成录新事实的草稿
-  // （剥 id/time/recorded、when 照旧——约定和测试都在 core/fact.js#duplicateDraft）。
+  // 复制/编辑这条事实的底稿（2026-10-15）：**取自真源，不取自 Markdown**。
+  // （剥 id/time/recorded、when 照旧——约定和单测都在 core/fact.js#duplicateDraft。）
   // 挂 session 而不是让壳直接 import fact.js：内核函数只能经这道门用（plugin.test.js 的守卫）。
-  // 读盘在壳（vault.read 拿到的是用户眼前这份；快照有时效差），解析和草稿在 core。
-  // 返回 null = 读不回契约（壳该提示"先修它"，而不是递上一个半截表单）：
-  // 解析失败固然是 null，"解析成功但不是事实"也是——parseFrontmatter 对无 frontmatter 的
-  // 纯文本走宽容语义（全文当正文、不报错），不拦的话用户会拿到缺 who/when 的草稿。
-  // 判"是不是事实"用 validate（core 的规则），壳不许自己判。
-  function duplicateDraftFromMarkdown(markdown) {
-    const { fact, error } = parseFactFile(markdown, enums);
-    if (error || !fact) return null;
-    if (validate(fact, ctx).some((i) => i.code.startsWith('E_'))) return null;
-    return duplicateDraft(fact);
+  //
+  // 为什么不用 md 当底稿（真机教训，同一天改的）：md 是读模型，用户手改过就可能缺字段——
+  // 真机里一条被手改成 what 空的事实，走 md 底稿会被 validate 判 E_MISSING_REQUIRED 拒绝，
+  // 编辑/复制直接提示"读不了契约"。而**最需要编辑的偏偏是记错的那条**：手改 md 的人正是
+  // 想改内容的人，把他挡在门外等于堵死纠正路径，还和"手改 md 不算数"的语义自相矛盾
+  // （既然不算数，就不该拿它当底稿）。真源那条写入时就过过校验，永远完整。
+  // 顺带：真源在快照里本来就要读（bodies:false 也读），改这条不增加读面。
+  //
+  // 真源里找不到这条 → null（孤儿 md：手改过 id/文件名，或真源行被人工删过），壳提示先跑体检。
+  // 这里不做 validate 拦截：真源里的坏记录恰恰是最该被编辑修好的对象，宽容放行。
+  function duplicateDraftFromTruth(topic, id) {
+    const target = readTruthIfAny(store, topic).find((f) => f.id === id);
+    return target ? duplicateDraft(target) : null;
   }
 
-  return { store, enums, now, ctx, record, remove, duplicateDraftFromMarkdown, audit, auditAndReport, rebuild };
+  return { store, enums, now, ctx, record, remove, duplicateDraftFromTruth, audit, auditAndReport, rebuild };
 }
 
 export { localDay, localHHMM, randHex4, makeFact, openSession };
