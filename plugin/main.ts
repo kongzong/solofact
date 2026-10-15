@@ -5,7 +5,7 @@
 //
 // 形态：**主题 = 目录**（一堆事实的上级目录）。录入分两阶段：先选/建主题，再录纯 5W2H（必填 who/when/what）。
 // 没有 type 这一级——同主题内 howmuch 天然同义；没有主题 frontmatter 字段——主题从目录名推断。
-import { Modal, Notice, Plugin, Setting, SuggestModal, debounce } from 'obsidian';
+import { Modal, Notice, Plugin, Setting, SuggestModal, TFolder, debounce } from 'obsidian';
 import type { App, ButtonComponent, TFile, TextComponent } from 'obsidian';
 import { snapshotStore } from '../core/adapters/vault.js';
 import { DIR } from '../core/vault.js';
@@ -74,8 +74,19 @@ export default class SolofactPlugin extends Plugin {
     this.registerEvent(v.on('create', seen));
     this.registerEvent(v.on('modify', seen));
     this.registerEvent(v.on('delete', seen));
-    // 改名只发 rename，不发 create/delete——事实文件一改名，wikilink 就断了，这正是体检要抓的
-    this.registerEvent(v.on('rename', (f, oldPath) => (seen(f), this.onVaultChange(oldPath), this.onMaybeTopicRename(f.path, oldPath))));
+    // 改名只发 rename，不发 create/delete——事实文件一改名，wikilink 就断了，这正是体检要抓的。
+    // onMaybeTopicRename 用 void + 自身 try/catch：它在同步链末尾，自己 throw 会污染整个事件回调；
+    // 而且它是唯一弹 UI 的，异常必须变成 Notice，不能静默。
+    // folder 事件打日志（诊断留档，2026-10-15 真机复现"改名无弹窗"时加的）：用户在 devtools
+    // 一眼能看到事件到没到；子文件事件不打（folder 改名会逐个发，一百个文件就是一百行噪音）。
+    this.registerEvent(
+      v.on('rename', (f, oldPath) => {
+        seen(f);
+        this.onVaultChange(oldPath);
+        if (f instanceof TFolder) console.log(`[solofact] folder rename: ${oldPath} -> ${f.path}`);
+        void this.onMaybeTopicRename(f.path, oldPath);
+      })
+    );
     this.app.workspace.onLayoutReady(() => this.scheduleAudit());
   }
 
@@ -299,19 +310,30 @@ export default class SolofactPlugin extends Plugin {
   // 主题=目录：用户在宿主里重命名/搬家主题目录，<主题>.base 里写死的 file.inFolder("旧名/事实")
   // 不会跟着变——视图静默变空，而静默正是这个项目要消灭的东西。检测到主题目录改名就说明白，
   // 并给一键修复（重建：按新目录名重生成 .base/时间线，真源不动）。
-  private onMaybeTopicRename(newPath: string, oldPath: string) {
+  private async onMaybeTopicRename(newPath: string, oldPath: string) {
     // 主题目录的判据：新路径下直接带着 _真源/facts.ndjson，旧路径下没有了。
     // 主题内部的文件改名（旧/新 top-level 相同）天然不匹配；_真源/事实 目录自身被改名也不匹配
     // （它们的下一级才是 facts.ndjson，不是 _真源/facts.ndjson）——那种破坏重建也修不了，交给体检报。
-    const truthAt = (p: string) => this.app.vault.getAbstractFileByPath(`${p}/_真源/facts.ndjson`) != null;
-    if (!truthAt(newPath) || truthAt(oldPath)) return;
-    new ConfirmModal(
-      this.app,
-      '主题目录被重命名了',
-      `「${oldPath}」变成了「${newPath}」。该主题的 .base 里写死了旧目录名，不修复的话视图会静默变空。\n\n从真源重建会按新目录名重新生成 .base 和时间线（只重生成读模型，真源一个字节不动）。`,
-      '重建修复',
-      () => this.rebuildFromTruth()
-    ).open();
+    //
+    // 用 adapter.exists（实时文件系统）而不是 getAbstractFileByPath（vault index）——2026-10-15
+    // 真机复现：用户重启后改名主题目录仍无弹窗。根因是 folder rename 事件触发时 index 还在过渡态
+    // （子文件的 rename 通知是随后才逐个发的），索引查新路径假阴性 → 判据第一关就 return →
+    // 弹窗静默不弹，而这个功能的存在意义就是消灭"静默"。adapter.exists 直接问磁盘，绕开时序。
+    // 已知边界：Obsidian 外的改名（文件管理器/终端）根本不发 rename 事件，那条路靠体检+重建兜底。
+    const truthAt = (p: string) => this.app.vault.adapter.exists(`${p}/_真源/facts.ndjson`);
+    try {
+      const [hasNew, hasOld] = await Promise.all([truthAt(newPath), truthAt(oldPath)]);
+      if (!hasNew || hasOld) return;
+      new ConfirmModal(
+        this.app,
+        '主题目录被重命名了',
+        `「${oldPath}」变成了「${newPath}」。该主题的 .base 里写死了旧目录名，不修复的话视图会静默变空。\n\n从真源重建会按新目录名重新生成 .base 和时间线（只重生成读模型，真源一个字节不动）。`,
+        '重建修复',
+        () => this.rebuildFromTruth()
+      ).open();
+    } catch (e) {
+      new Notice(staged('检测主题改名', e).message, 10000);
+    }
   }
 
   private async openFile(rel: string) {
