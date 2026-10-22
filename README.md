@@ -8,7 +8,7 @@
 - **规则只有一份**：契约（`contract/`）+ 纯函数核（`core/`），CLI 和插件两个壳都只是它的调用者
 - **插件「只写不看」**：不渲染表格、不做仪表盘，宿主 Obsidian 才是查看层
 
-当前版本 **0.4.0** · 测试全绿 · [发布流程](RELEASE.md) · [演示库说明](vault-5w2h/README.md)
+当前版本 **0.4.1** · 测试全绿 · [发布流程](RELEASE.md) · [演示库说明](vault-5w2h/README.md)
 
 ---
 
@@ -52,7 +52,7 @@
 **agent 用户**：
 
 ```bash
-tar xzf solofact-skill-0.4.0.tar.gz
+tar xzf solofact-skill-0.4.1.tar.gz
 cp -r solofact ~/.workbuddy/skills/     # 项目级安装则放到 <项目>/.workbuddy/skills/
 # 对你的 agent 说：「记一条：今天给了阿杰 UI 尾款 8000 元，记到公司记账」
 ```
@@ -101,7 +101,7 @@ vault-5w2h/   演示库（可再生：node vault-5w2h/build.js）
 
 ## 状态与路线
 
-- **0.4.0**（当前）：删除/编辑/复制三命令（复制走真源底稿，编辑=另存新稿+删旧稿）；时间线按月分段（录入 O(1)）；`.base` 文件名=目录名的严格规矩（体检+弹窗双保险）；键盘流 + 状态栏「今日已记」
+- **0.4.1**（当前）：删除/编辑/复制三命令（复制走真源底稿，编辑=另存新稿+删旧稿）；时间线按月分段（录入 O(1)）；`.base` 文件名=目录名的严格规矩（体检+弹窗双保险）；键盘流 + 状态栏「今日已记」
 - **未做**：Obsidian 官方商店提交（等 BRAT 稳定运行几个版本）、npm publish（package.json 已配好 `files`，随时可发）
 
 [RELEASE.md](RELEASE.md) 有完整的发布/更新流程。

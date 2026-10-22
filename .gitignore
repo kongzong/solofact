@@ -2,6 +2,9 @@
 node_modules/
 dist/
 
+# 发版前的真源备份（pack:demo 会全清重建 vault-5w2h，先兜底真实记录）
+.release-backup/
+
 # 开发库的构建产物（协作者跑 npm run plugin 生成，不进历史）
 vault-5w2h/.obsidian/plugins/solofact/main.js
 

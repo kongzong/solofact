@@ -1,7 +1,7 @@
 ---
 name: solofact
 description: 在 Obsidian 库里按主题记录"发生过什么"。事实层的写入只走 solofact 的写入函数集（当前的壳是它的 CLI，AI agent 通过本 skill 调它），致命错误拒绝写入，Markdown 坏了从真源重建。当用户要记下一次接触/一通电话/一条承诺/一笔账/一件日常，或要检查库里的数据是否合规时使用。
-version: 0.4.0
+version: 0.4.1
 ---
 
 # solofact：记录事实，不记录判断
