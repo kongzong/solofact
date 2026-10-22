@@ -49,11 +49,10 @@ export default class SolofactPlugin extends Plugin {
   // 连记时下拉会缺刚记的值。壳自己记一份本会话见过的值，和缓存扫描合并——
   // 纯展示层缓存，不是规则（规则只有一份，在 core）。
   private historyExtra = new Map<string, Map<string, Set<string>>>();
-  // 上次成功提交的 who（2026-10-22）：录入表单预填它，单人/单客户场景省一次输入。
-  // 壳的使用习惯，存插件级 data.json，不是事实数据。公开成员——RecordModal
-  // （另一个类）要读它；savedData 保持私有，只有本类写。
-  lastWho = '';
-  private savedData: Record<string, unknown> | null = null;
+  // 注：2026-10-22 曾在此存过「上次成功提交的 who」（插件级 data.json）——
+  // 随「唯一才缺省」规则作废，机制整条删除（见 renderFactStage 的预填规则与 SPEC §4）。
+  // 理由：字段里预先填着值，人会"扫一眼就过"而不是想"这次是谁"；最坏结果是
+  // 假事实进了 append-only 真源。而"复用谁"这件事候选下拉本来就管着。
 
   onload() {
     this.runDebounced = debounce(() => void this.runAudit(false), AUDIT_DELAY_MS, true);
@@ -149,24 +148,7 @@ export default class SolofactPlugin extends Plugin {
   }
 
   private openRecord() {
-    // 先取回 data.json（上次的 who）再开表单——异步加载完之前开表单，预填就会闪空。
-    void this.ensureData().then(() => new RecordModal(this.app, this).open());
-  }
-
-  // 插件级数据懒加载（2026-10-22）：Obsidian 的 loadData 读 <插件目录>/data.json，
-  // 存的是壳的使用习惯（上次的 who），不是事实——事实只在库里。
-  // 读失败必须降级而不是炸掉：who 预填是增强不是前提，data.json 损坏时
-  // "记不了事实"是最坏的结果——所以这里自己接住，当没有上次值。
-  async ensureData() {
-    if (this.savedData) return;
-    try {
-      this.savedData = (await this.loadData()) ?? {};
-      this.lastWho = String(this.savedData?.lastWho ?? '');
-    } catch (e) {
-      this.savedData = {};
-      this.lastWho = '';
-      console.error('[solofact] 读插件数据失败，who 预填降级为「无上次值」', e);
-    }
+    new RecordModal(this.app, this).open();
   }
 
   private async openStore(bodies = false) {
@@ -199,22 +181,6 @@ export default class SolofactPlugin extends Plugin {
     }
     this.reportConfig(flush, store);
     this.scheduleAudit();
-    // who 记住上次成功提交的值（2026-10-22）：单人场景 who 恒为「我自己」，每天重输一遍
-    // 是纯粹的录入税；CRM 场景连续录同一客户同样受益。存插件级 data.json——
-    // 库级数据不该进这个文件，但"上次跟谁"是壳的使用习惯，不是事实。
-    const who = String(result.fact.who ?? '').trim();
-    if (who && who !== this.lastWho) {
-      this.lastWho = who;
-      // record() 自己是 async——await 而不是 void：异常沿 await 链进调用方已有的
-      // staged 处理（"写回宿主"那一段），比在这里吞掉或 void 丢弃都老实。
-      // saveData 失败不该拦住事实落盘（它已经写完了），所以包一层降级。
-      try {
-        await this.saveData({ ...(this.savedData ?? {}), lastWho: who });
-        this.savedData = { ...(this.savedData ?? {}), lastWho: who };
-      } catch (e) {
-        console.error('[solofact] 保存 who 习惯值失败（不影响本条事实）', e);
-      }
-    }
     return { ok: result.written, topic: result.topic, fact: result.fact, fatal: result.fatal, warn: result.warn };
   }
 
@@ -531,13 +497,9 @@ class RecordModal extends Modal {
 
   onOpen() {
     this.contentEl.addClass('solofact-record');
-    // who 预填上次成功提交的值（2026-10-22）：单人场景 who 恒为「我自己」，CRM 场景
-    // 连续录同一客户——每天重输是纯录入税。复制/编辑入口（initial 有值）不预填，
-    // 底稿里的 who 是旧稿的，盖掉它等于悄悄改了要复制的内容。
-    // 没有上次值（冷启动）时不在这里兜底——阶段二才知道主题，兜底在 renderFactStage。
-    if (!this.initial && this.plugin.lastWho && this.draft.who == null) {
-      this.draft.who = this.plugin.lastWho;
-    }
+    // who 不在这里预填（2026-10-22 用户拍板「唯一才缺省」）：预填只在阶段二做，
+    // 因为规则是**本主题**层面的（见 renderFactStage）。复制/编辑入口带 initial，
+    // 底稿里的 who 是旧稿的，任何预填都会悄悄改掉要复制的内容。
     // 键盘流（2026-10-22）：Ctrl/Cmd+Enter = 提交 / 阶段一下一步。what 是 textarea，
     // 裸 Enter 必须留给换行，所以这里只劫持组合键；阶段一的裸 Enter 挂在主题框自己的
     // keydown 上（要避开 datalist"选中第一项"的默认语义，见 comboMatchesSuggestion）。
@@ -642,12 +604,14 @@ class RecordModal extends Modal {
       s.addText((t) => {
         const whoHistory = this.historyOf('who', topic);
         this.attachCombo(t.inputEl, whoHistory);
-        // 冷启动兜底（2026-10-22 真机验收补）：data.json 里没有上次 who 时（新装插件，
-        // 或"装插件之前库里就有历史"的渐变真库——用户的记录都还没在新插件下落盘过），
-        // 用本主题最高频的 who 预填。单人库（谁=我自己）第一次开表单就该是填好的，
-        // 不该要求用户先记一条才生效。onOpen 里的 lastWho 仍然优先（data.json 有值时
-        // d.who 早已填上）；这里只兜底 null——用户清空过（''）是明确意图，不替他回填。
-        if (d.who == null) d.who = whoHistory[0] ?? '';
+        // **「唯一才缺省」**（2026-10-22 用户拍板）：本主题至今只出现过一个 who 时预填它；
+        // 出现 2 个以上取值就**不预填**——"复用谁"由候选下拉承担（拉：用户主动选），
+        // 缺省是推（系统替他填），推错的代价是**假事实进了 append-only 真源**，
+        // 而字段里已经填着东西会让人"扫一眼就过"（确认偏误），不再想"这次是谁"。
+        // 规则收益：单人库（谁恒为"我自己"）零摩擦且不可能填错；多方库不给错记的机会。
+        // 新主题录第一条 → 之后变"唯一" → 从第二条起自动缺省（自举，不需要额外机制）。
+        // 只兜 null：用户动过这个框（含清空成 ''）是明确意图，不替他回填。
+        if (d.who == null && whoHistory.length === 1) d.who = whoHistory[0];
         if (d.who != null) t.setValue(String(d.who));
         t.onChange((v) => (d.who = v));
       })

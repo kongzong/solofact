@@ -172,10 +172,12 @@ test('5W2H 表单：两阶段（先主题后事实），必填 who/when/what，�
   assert.match(text, /this\.attachCombo\(t\.inputEl, this\.plugin\.topicsOf\(\)\)/, '阶段一主题候选必须来自现有主题目录（topicsOf），同时支持自由新建');
   assert.match(text, /const whoHistory = this\.historyOf\('who', topic\)/, '阶段二主题已定：who 候选直接按该主题取（不再有随时重挂的中间态）');
   assert.match(text, /this\.attachCombo\(t\.inputEl, whoHistory\)/, 'who 输入框挂的就是该主题的历史候选');
-  // 冷启动兜底（2026-10-22 真机验收后补）：data.json 里没有上次 who 时（新装插件，或
-  // "记录都录于旧构建"的渐变真库），用本主题最高频 who 预填——否则第一次开表单永远是空的，
-  // 用户会以为功能没做。只兜底 null：用户清空过（''）是明确意图，不替他回填。
-  assert.match(text, /if \(d\.who == null\) d\.who = whoHistory\[0\] \?\? ''/, 'who 冷启动兜底：没有上次值时用本主题最高频 who 预填');
+  // 「唯一才缺省」（2026-10-22 用户拍板）：本主题历史 who 只有一个取值才预填它；
+  // 2 个以上就不预填——"复用谁"由候选下拉承担（拉），缺省是推（系统替他填），
+  // 推错的代价是假事实进了 append-only 真源，且字段里已填着东西会让人"扫一眼就过"。
+  // 旧实现（data.json 存"上次跟谁" + 主题频次兜底）整条作废：预填唯一就够。
+  assert.match(text, /if \(d\.who == null && whoHistory\.length === 1\) d\.who = whoHistory\[0\]/, 'who 缺省规则：只有本主题历史 who 唯一时才预填');
+  assert.doesNotMatch(text, /lastWho|saveData|loadData/, '插件级 data.json 机制已随「唯一才缺省」整条删除——不再有"上次跟谁"的壳级状态');
   assert.match(text, /topicsOf\(\): string\[\]/, 'topicsOf 必须存在——列出现有主题目录名');
   assert.match(text, /private historyOf\(/, 'historyOf 必须存在——读库里已有的字段值做候选');
   // 用户定调（2026-10-12）：枚举按「同主题」取，不跨主题混。主题=目录后，作用域 = <topic>/事实/。
