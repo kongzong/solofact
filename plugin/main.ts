@@ -18,16 +18,19 @@ type Issue = { code: string; message: string; field?: string };
 // 现在刻意还没做：等出现"用户要自己改枚举"的真实需求再说。
 
 // 5W2H 字段的通用标签与提示（纯展示文案，不是规则——type 已去掉，字段不再按类型变）。
+// 必填三项 label 带「（必填）」后缀（2026-10-22）：一屏可选字段里，不标出来就不知道
+// 哪三个不填不让存——视觉标记比"看报错再猜"便宜。模式与阶段一主题行一致。
+// tags 不在了（2026-10-22 移除）：实测全库 0% 填充，5W2H 本无此字段——
+// 空候选的下拉是纯噪音，还占一行。
 const FIELD_META: Record<string, { label: string; hint: string }> = {
-  who: { label: '谁', hint: '跟谁：腾讯·老王 / 我自己 / 市图书馆…' },
-  when: { label: '何时', hint: '发生日期 YYYY-MM-DD' },
-  what: { label: '发生了啥', hint: '一句事实：能指着说"就是这个"的，不写判断' },
+  who: { label: '谁（必填）', hint: '跟谁：腾讯·老王 / 我自己 / 市图书馆…' },
+  when: { label: '何时（必填）', hint: '发生日期 YYYY-MM-DD' },
+  what: { label: '发生了啥（必填）', hint: '一句事实：能指着说"就是这个"的，不写判断' },
   time: { label: '时刻', hint: 'HH:mm，不知道就留默认' },
   where: { label: '在哪', hint: '地点：客户现场 / 江边公园 / 家里…' },
   why: { label: '为何', hint: '目的或性质：推进决策 / 记录习惯 / 健康管理…' },
   how: { label: '方式', hint: '怎么发生的：会议 / 微信 / 付款 / 运动…' },
   howmuch: { label: '多少', hint: '一个数：资金可负（负=出）/ 体重 / 里程 / 读数…单位写进正文' },
-  tags: { label: '标签', hint: '可选，逗号分隔；候选来自本主题历史' },
 };
 
 const AUDIT_DELAY_MS = 2000;
@@ -46,6 +49,11 @@ export default class SolofactPlugin extends Plugin {
   // 连记时下拉会缺刚记的值。壳自己记一份本会话见过的值，和缓存扫描合并——
   // 纯展示层缓存，不是规则（规则只有一份，在 core）。
   private historyExtra = new Map<string, Map<string, Set<string>>>();
+  // 上次成功提交的 who（2026-10-22）：录入表单预填它，单人/单客户场景省一次输入。
+  // 壳的使用习惯，存插件级 data.json，不是事实数据。公开成员——RecordModal
+  // （另一个类）要读它；savedData 保持私有，只有本类写。
+  lastWho = '';
+  private savedData: Record<string, unknown> | null = null;
 
   onload() {
     this.runDebounced = debounce(() => void this.runAudit(false), AUDIT_DELAY_MS, true);
@@ -123,7 +131,7 @@ export default class SolofactPlugin extends Plugin {
   rememberHistory(topic: string, fact: Record<string, unknown>) {
     let byField = this.historyExtra.get(topic);
     if (!byField) this.historyExtra.set(topic, (byField = new Map()));
-    for (const field of ['who', 'time', 'where', 'why', 'how', 'howmuch', 'tags']) {
+    for (const field of ['who', 'time', 'where', 'why', 'how', 'howmuch']) {
       const v = fact[field];
       if (v == null || v === '') continue;
       let set = byField.get(field);
@@ -141,7 +149,24 @@ export default class SolofactPlugin extends Plugin {
   }
 
   private openRecord() {
-    new RecordModal(this.app, this).open();
+    // 先取回 data.json（上次的 who）再开表单——异步加载完之前开表单，预填就会闪空。
+    void this.ensureData().then(() => new RecordModal(this.app, this).open());
+  }
+
+  // 插件级数据懒加载（2026-10-22）：Obsidian 的 loadData 读 <插件目录>/data.json，
+  // 存的是壳的使用习惯（上次的 who），不是事实——事实只在库里。
+  // 读失败必须降级而不是炸掉：who 预填是增强不是前提，data.json 损坏时
+  // "记不了事实"是最坏的结果——所以这里自己接住，当没有上次值。
+  async ensureData() {
+    if (this.savedData) return;
+    try {
+      this.savedData = (await this.loadData()) ?? {};
+      this.lastWho = String(this.savedData?.lastWho ?? '');
+    } catch (e) {
+      this.savedData = {};
+      this.lastWho = '';
+      console.error('[solofact] 读插件数据失败，who 预填降级为「无上次值」', e);
+    }
   }
 
   private async openStore(bodies = false) {
@@ -174,6 +199,22 @@ export default class SolofactPlugin extends Plugin {
     }
     this.reportConfig(flush, store);
     this.scheduleAudit();
+    // who 记住上次成功提交的值（2026-10-22）：单人场景 who 恒为「我自己」，每天重输一遍
+    // 是纯粹的录入税；CRM 场景连续录同一客户同样受益。存插件级 data.json——
+    // 库级数据不该进这个文件，但"上次跟谁"是壳的使用习惯，不是事实。
+    const who = String(result.fact.who ?? '').trim();
+    if (who && who !== this.lastWho) {
+      this.lastWho = who;
+      // record() 自己是 async——await 而不是 void：异常沿 await 链进调用方已有的
+      // staged 处理（"写回宿主"那一段），比在这里吞掉或 void 丢弃都老实。
+      // saveData 失败不该拦住事实落盘（它已经写完了），所以包一层降级。
+      try {
+        await this.saveData({ ...(this.savedData ?? {}), lastWho: who });
+        this.savedData = { ...(this.savedData ?? {}), lastWho: who };
+      } catch (e) {
+        console.error('[solofact] 保存 who 习惯值失败（不影响本条事实）', e);
+      }
+    }
     return { ok: result.written, topic: result.topic, fact: result.fact, fatal: result.fatal, warn: result.warn };
   }
 
@@ -447,7 +488,12 @@ export default class SolofactPlugin extends Plugin {
       );
     }
     if (store.probe.readError) {
-      new Notice(`读配置目录失败：${store.probe.readError}`, 8000);
+      // 未初始化的库里读 .obsidian 会失败（2026-10-22 人话化）：以前只报"读配置目录失败"，
+      // 新用户完全不知道下一步干嘛。demo vault 是解压即用的参照物，CLI init 是另一条路。
+      new Notice(
+        `读不了库的配置目录：${store.probe.readError}。这通常说明库还没初始化——新用户建议直接用 demo vault（解压即用）；老库可在库里跑一次 CLI「solofact init」再录。`,
+        12000
+      );
     }
   }
 }
@@ -485,6 +531,12 @@ class RecordModal extends Modal {
 
   onOpen() {
     this.contentEl.addClass('solofact-record');
+    // who 预填上次成功提交的值（2026-10-22）：单人场景 who 恒为「我自己」，CRM 场景
+    // 连续录同一客户——每天重输是纯录入税。复制/编辑入口（initial 有值）不预填，
+    // 底稿里的 who 是旧稿的，盖掉它等于悄悄改了要复制的内容。
+    if (!this.initial && this.plugin.lastWho && this.draft.who == null) {
+      this.draft.who = this.plugin.lastWho;
+    }
     // 键盘流（2026-10-22）：Ctrl/Cmd+Enter = 提交 / 阶段一下一步。what 是 textarea，
     // 裸 Enter 必须留给换行，所以这里只劫持组合键；阶段一的裸 Enter 挂在主题框自己的
     // keydown 上（要避开 datalist"选中第一项"的默认语义，见 comboMatchesSuggestion）。
@@ -650,16 +702,6 @@ class RecordModal extends Modal {
         this.attachCombo(t.inputEl, this.historyOf('howmuch', topic));
         if (d.howmuch != null) t.setValue(String(d.howmuch));
         t.onChange((v) => (d.howmuch = v));
-      })
-    );
-
-    // tags（2026-10-15 补）：契约里有这个字段，表单以前不给——不对称。可选，逗号分隔，
-    // 候选来自本主题历史（frontmatter 里 tags 是数组，historyOf 已按元素逐个计）。
-    this.settings.tags = this.add(el, FIELD_META.tags.label, FIELD_META.tags.hint, 'tags', (s) =>
-      s.addText((t) => {
-        this.attachCombo(t.inputEl, this.historyOf('tags', topic));
-        if (d.tags != null) t.setValue(Array.isArray(d.tags) ? d.tags.join(', ') : String(d.tags));
-        t.onChange((v) => (d.tags = v));
       })
     );
 

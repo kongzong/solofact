@@ -34,7 +34,7 @@ tags: [商务, 茶水]
 聊了 Q4 的合作框架，对方出方案我们出排期。
 `;
 
-test('duplicateDraft：剥 id、when 照旧、无 time、tags 数组转逗号串', () => {
+test('duplicateDraft：剥 id、when 照旧、无 time、tags 已出契约不进草稿', () => {
   const { fact } = parseFactFile(FACT_MD, enums);
   const draft = duplicateDraft(fact);
   assert.equal(draft.who, '腾讯·老王');
@@ -44,7 +44,9 @@ test('duplicateDraft：剥 id、when 照旧、无 time、tags 数组转逗号串
   assert.equal(draft.why, '推进决策');
   assert.equal(draft.how, '会议');
   assert.equal(draft.howmuch, 500);
-  assert.equal(draft.tags, '商务, 茶水');
+  // tags 2026-10-22 从契约移除（全库 0% 填充，5W2H 本无此字段）。FACT_MD 里那行是
+  // 旧数据：解析器照读（宽容），但草稿不带它——录出来的新事实没有 tags。
+  assert.ok(!('tags' in draft), 'tags 已出契约，不进草稿');
   // 三条铁律
   assert.ok(!('id' in draft), 'id 绝不进草稿——撞 E_DUPLICATE_ID 的就是它');
   assert.ok(!('time' in draft), 'time 不输出——壳自动填当前时刻');

@@ -120,8 +120,28 @@ test('record 不再默认注入 tags：fact 标签无人消费，还把候选下
     const r = s.record({ topic: '日常', who: '我', when: '2026-09-01', what: '读了半本书' });
     assert.equal(r.written, true, JSON.stringify(r.fatal));
     assert.equal(r.fact.tags, undefined, '没传 tags 就不该有 tags——曾经默认塞 ["fact"]，没有任何视图消费它');
+  } finally {
+    cleanup();
+  }
+});
+
+test('tags 已从契约移除（2026-10-22）：旧数据里的 tags 读得出、但报未知字段告警', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    const store = fsAdapter(dir);
+    const s = openSession(store, { enums, now: NOW });
+    // 手写/旧数据带 tags：录入链路不拦（数据宽容），但体检会一直报 W_UNKNOWN_FIELD
+    // ——字段出契约是有意的，提醒用户"这个字段宿主视图不显示了"。
     const t = s.record({ topic: '日常', who: '我', when: '2026-09-02', what: '跑步 5 公里', tags: ['健康'] });
-    assert.deepEqual(t.fact.tags, ['健康'], '传了 tags 照原样收下');
+    assert.equal(t.written, true, 'tags 不是致命错误，不拦写入');
+    assert.ok(
+      t.warn.some((w) => w.code === 'W_UNKNOWN_FIELD' && w.field === 'tags'),
+      `传 tags 应报未知字段告警，实际：${JSON.stringify(t.warn)}`
+    );
+    // 告警必须落进体检报告——record 返回的 warn 是一次性的，报告才是持续可见的那层
+    s.auditAndReport('测试库');
+    const report = readFileSync(path.join(dir, '_体检.md'), 'utf8');
+    assert.match(report, /W_UNKNOWN_FIELD/);
   } finally {
     cleanup();
   }
@@ -138,13 +158,14 @@ test('体检报告带字段填充画像：可选字段哪些真有人填，复�
     s.auditAndReport('测试库');
     const report = readFileSync(path.join(dir, '_体检.md'), 'utf8');
     assert.match(report, /## 字段填充（录入画像）/);
-    // who/when/what 恒满；where/how 各 1/3；why/tags 0；howmuch 3/3——0 算填了，不是空缺。
-    // time 不列入：makeFact 自动打戳（非当天补 00:00），填充率恒 100% 是机器产物不是习惯。
+    // who/when/what 恒满；where/how 各 1/3；why 0；howmuch 3/3——0 算填了，不是空缺。
+    // time/tags 不列入：time 是内核自动打戳（恒 100% 是机器产物）；tags 2026-10-22 出契约。
     assert.match(
       report,
-      /\| 体重检测 \| 3 \| 09-01 ~ 09-03 \| 100% \| 100% \| 100% \| 33% \| 0% \| 33% \| 100% \| 0% \|/
+      /\| 体重检测 \| 3 \| 09-01 ~ 09-03 \| 100% \| 100% \| 100% \| 33% \| 0% \| 33% \| 100% \|/
     );
     assert.doesNotMatch(report, /\| time \|/, 'time 是内核自动打戳的字段，不进画像');
+    assert.doesNotMatch(report, /\| tags \|/, 'tags 已从契约移除，不进画像');
     assert.match(report, /\| \*\*全库\*\* \| \*\*3\*\* \|/, '全库行汇总所有主题');
   } finally {
     cleanup();

@@ -113,11 +113,6 @@ function duplicateDraft(data) {
   put('why', data.why);
   put('how', data.how);
   put('howmuch', data.howmuch); // 0 是合法值（资金主题的 0 笔），不等于空
-  if (Array.isArray(data.tags)) {
-    if (data.tags.length) draft.tags = data.tags.join(', ');
-  } else {
-    put('tags', data.tags);
-  }
   return draft;
 }
 
@@ -178,7 +173,6 @@ function normalize(raw, enums) {
     if (value === undefined || value === '') continue;
     fact[key] = enums.link_fields.includes(key) ? linkName(value) : value;
   }
-  if (Array.isArray(fact.tags)) fact.tags = fact.tags.map((t) => String(t).replace(/^#/, ''));
   if (typeof fact.content === 'string') fact.content = fact.content.trim();
   return fact;
 }
@@ -305,15 +299,38 @@ function hasBody(fact) {
   return t != null && t.trim().length > 0;
 }
 
+// 事实笔记正文顶部的题注行（2026-10-22）：打开一条事实，frontmatter 之外只有一句 what，
+// who/when/where 全散在属性面板——扫读时要在"正文"和"属性面板"之间来回跳。题注行把
+// 元信息提到正文里：`> 2026-10-22 15:48 · 我自己 · 家里 · 测量 · 📊 71.8`。
+// 它是**读模型的一部分**（真源里没有，重建时从字段重算），所以 parseFactFile 必须
+// 把它剥掉——否则体检读回的 content 会带着题注行，"正文"就不再是正文。
+function factAnnotation(fact) {
+  const parts = [
+    fact.when,
+    parseTime(fact.time),
+    fact.who,
+    fact.where,
+    fact.how,
+    fact.howmuch != null && fact.howmuch !== '' ? `📊 ${fact.howmuch}` : null,
+  ].filter((x) => x != null && x !== '');
+  return parts.join(' · ');
+}
+
 function renderFactFile(fact, enums) {
   const f = normalize(fact, enums);
-  return `${dumpFrontmatter(f, enums)}\n\n${(bodyText(f) || '').trim()}\n`;
+  const note = factAnnotation(f);
+  return `${dumpFrontmatter(f, enums)}\n\n${note ? `> ${note}\n\n` : ''}${(bodyText(f) || '').trim()}\n`;
 }
 
 function parseFactFile(markdown, enums) {
   const { data, body, error } = parseFrontmatter(markdown);
   if (error) return { fact: null, error };
-  return { fact: normalize({ ...data, content: body.trim() }, enums), error: null };
+  // 剥掉题注行（renderFactFile 的逆操作）：正文以「> 日期」开头的引用块是内核的题注，
+  // 不是用户写的正文。只剥 leading 的一整块（题注 + 空行），正文里自己写的引用块不动。
+  let content = body.trim();
+  const m = content.match(/^> \d{4}-\d{2}-\d{2}[^\n]*\n\n/);
+  if (m) content = content.slice(m[0].length);
+  return { fact: normalize({ ...data, content }, enums), error: null };
 }
 
 // 事实的简短摘要（CLI 录入后回显用）：时间 + wikilink + who + 正文前 40 字。
@@ -330,6 +347,7 @@ export {
   idParts,
   parseDate,
   dayString,
+  localDayString,
   parseTime,
   parseFrontmatter,
   duplicateDraft,

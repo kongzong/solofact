@@ -29,7 +29,7 @@ version: 0.4.2
 init   --vault <库> [--force]     建 .obsidian、写 types.json（主题在首条记录时按需建）
 记录   --vault <库> --topic 潮汕6日游 --who 我自己 --when 2026-10-12 [--time 09:30] \
        [--where 江边] [--why 记录习惯] [--how 运动] [--howmuch 5] \
-       [--tags 日常] [--id …] [--recorded YYYY-MM-DD] "正文"
+       [--id …] [--recorded YYYY-MM-DD] "正文"
 删除   --vault <库> --topic <主题> <id> [--yes]  唯一的破坏性写入：默认只预览，--yes 才真删
 主题   --vault <库>               只读：列出现有主题和各主题事实数（录入前先对齐主题名）
 体检   --vault <库>               跨所有主题汇总，写 _体检.md，有致命错误退出码 1

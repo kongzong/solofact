@@ -13,8 +13,7 @@
     "why",
     "how",
     "howmuch",
-    "recorded",
-    "tags"
+    "recorded"
   ],
   "required": ["who", "when", "what"],
   "number_fields": ["howmuch"],

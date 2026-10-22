@@ -90,7 +90,6 @@ function recordInput() {
     how: flags.how,
     howmuch: flags.howmuch,
     recorded: flags.recorded,
-    tags: flags.tags ? String(flags.tags).split(',').map((t) => t.trim()).filter(Boolean) : undefined,
   };
 }
 
@@ -258,7 +257,7 @@ function help() {
 
   solofact init    --vault <库目录> [--force]
   solofact 记录    --vault <库> --topic 潮汕6日游 --who 我自己 --when 2026-10-12 [--time 09:30] \\
-                  [--where 江边] [--why 记录习惯] [--how 运动] [--howmuch 5] [--tags 日常] "跑了 5 公里"
+                  [--where 江边] [--why 记录习惯] [--how 运动] [--howmuch 5] "跑了 5 公里"
   solofact 删除    --vault <库> --topic <主题> <id> [--yes]  # 唯一的破坏性写入：默认只预览，--yes 才真删（真源压缩不可逆）
   solofact 主题    --vault <库>          # 只读：列出现有主题和各主题事实数（录入前先对齐主题名）
   solofact 体检    --vault <库>          # 跨所有主题汇总，写 _体检.md；有致命错误退出码 1

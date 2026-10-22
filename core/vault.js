@@ -89,7 +89,10 @@ function viewIssues(store) {
 // 单个主题的 事实.base。凡是可枚举的文本字段都给一个"按 X 分组"看板：who/where/why/how 各一板，
 // when 走时间线，howmuch 拆"正值记录/负值记录"两张表（howmuch 是有符号数：资金主题 负=出、正=进，
 // 一张表混排看不出进出，拆开各是一本账；0 值罕见，归"全部事实"看）。howmuch 是通用度量，同主题内
-// 天然同义，但不做 Sum（跨行相加仍可能无意义，用户要算自己在 Bases 里加 summary 即可）。
+// 天然同义——正/负值表带 Sum 汇总（2026-10-22 用户拍板加上）：资金主题打开即见进/出总额，
+// 是"记录要有回报"最直接的一格；体重/里程主题的累计值无意义，用户不理那格即可（Sum 是
+// 默认值不是强制，在 Bases 里可删）。录入路径不覆盖已有 base（见 ensureTopic），
+// 只有显式「重建」才统一重写——用户手加的 summary 那时归用户自己维护。
 // what 是长叙述，表格只放「摘要」公式预览列。
 function buildBase(topic) {
   return `filters:
@@ -169,6 +172,8 @@ views:
       and:
         # 资金主题即"进账/收"；其他主题（体重/里程/读数）本来就是正的，全落在这张
         - howmuch > 0
+    summaries:
+      howmuch: Sum
     order:
       - when
       - time
@@ -184,6 +189,8 @@ views:
       and:
         # 资金主题即"出账/支"；非资金主题通常一张都没有——空着就对了
         - howmuch < 0
+    summaries:
+      howmuch: Sum
     order:
       - when
       - time
