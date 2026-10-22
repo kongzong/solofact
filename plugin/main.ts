@@ -473,6 +473,7 @@ class RecordModal extends Modal {
   private topic = '';
   // 阶段二的可选字段折叠区（2026-10-22）：showErrors 要在错误字段落在里面时把它展开
   private optionalDetails: HTMLDetailsElement | null = null;
+  private optionalSummary: HTMLElement | null = null;
 
   // initial 是「复制这条事实」的预填草稿（2026-10-15）：带了主题就直接进阶段二，
   // 用户落在填满的表单上只改要改的。注意 TS 字段初始化器在构造体之前跑——
@@ -627,7 +628,7 @@ class RecordModal extends Modal {
       return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
     }).length;
     opt.setAttr('style', 'margin:10px 0 2px;');
-    opt.createEl('summary', {
+    this.optionalSummary = opt.createEl('summary', {
       text: filled ? `更多细节（可选）· 已填 ${filled} 项` : '更多细节（可选，想到了再填，不填不报错）',
       attr: { style: 'cursor:pointer;color:var(--text-muted);font-size:0.9em;padding:4px 0;user-select:none;' },
     });
@@ -639,28 +640,40 @@ class RecordModal extends Modal {
         this.attachCombo(t.inputEl, this.historyOf('time', topic));
         if (d.time == null) d.time = localHHMMText();
         t.setValue(String(d.time));
-        t.onChange((v) => (d.time = v));
+        t.onChange((v) => {
+          d.time = v;
+          this.refreshOptionalSummary();
+        });
       })
     );
     this.settings.where = this.add(optBody, FIELD_META.where.label, FIELD_META.where.hint, 'where', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('where', topic));
         if (d.where != null) t.setValue(String(d.where));
-        t.onChange((v) => (d.where = v));
+        t.onChange((v) => {
+          d.where = v;
+          this.refreshOptionalSummary();
+        });
       })
     );
     this.settings.why = this.add(optBody, FIELD_META.why.label, FIELD_META.why.hint, 'why', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('why', topic));
         if (d.why != null) t.setValue(String(d.why));
-        t.onChange((v) => (d.why = v));
+        t.onChange((v) => {
+          d.why = v;
+          this.refreshOptionalSummary();
+        });
       })
     );
     this.settings.how = this.add(optBody, FIELD_META.how.label, FIELD_META.how.hint, 'how', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('how', topic));
         if (d.how != null) t.setValue(String(d.how));
-        t.onChange((v) => (d.how = v));
+        t.onChange((v) => {
+          d.how = v;
+          this.refreshOptionalSummary();
+        });
       })
     );
     this.settings.howmuch = this.add(optBody, FIELD_META.howmuch.label, FIELD_META.howmuch.hint, 'howmuch', (s) =>
@@ -668,7 +681,10 @@ class RecordModal extends Modal {
         t.inputEl.type = 'number';
         this.attachCombo(t.inputEl, this.historyOf('howmuch', topic));
         if (d.howmuch != null) t.setValue(String(d.howmuch));
-        t.onChange((v) => (d.howmuch = v));
+        t.onChange((v) => {
+          d.howmuch = v;
+          this.refreshOptionalSummary();
+        });
       })
     );
 
@@ -678,7 +694,10 @@ class RecordModal extends Modal {
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('tags', topic));
         if (d.tags != null) t.setValue(Array.isArray(d.tags) ? d.tags.join(', ') : String(d.tags));
-        t.onChange((v) => (d.tags = v));
+        t.onChange((v) => {
+          d.tags = v;
+          this.refreshOptionalSummary();
+        });
       })
     );
 
@@ -703,6 +722,21 @@ class RecordModal extends Modal {
       text: '快捷键：Ctrl/Cmd+Enter 提交',
       attr: { style: 'color:var(--text-muted);font-size:0.8em;margin:6px 0 0;' },
     });
+    // 收尾刷新一次：time 是自动填的（用户没敲键盘），打开时算的计数漏了它——
+    // 不补这一下，新表单摘要行显示"想到了再填"而折叠区里明明有当前时刻。
+    this.refreshOptionalSummary();
+  }
+
+  // 摘要行跟着草稿走（2026-10-22）：打开时算一次的话，用户之后填什么计数都不动，
+  // "已填 N 项"就骗人。六个可选字段的 onChange 和阶段二渲染收尾各调一次。
+  private refreshOptionalSummary() {
+    const s = this.optionalSummary;
+    if (!s) return;
+    const filled = OPTIONAL_FIELDS.filter((k) => {
+      const v = this.draft[k];
+      return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
+    }).length;
+    s.setText(filled ? `更多细节（可选）· 已填 ${filled} 项` : '更多细节（可选，想到了再填，不填不报错）');
   }
 
   // 一行就是一个输入框：name 是字段名，hint 是它的说明（清空错误时还原回去），key 是 settings 的索引。
