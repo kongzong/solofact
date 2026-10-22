@@ -30,11 +30,6 @@ const FIELD_META: Record<string, { label: string; hint: string }> = {
   tags: { label: '标签', hint: '可选，逗号分隔；候选来自本主题历史' },
 };
 
-// 可选维度（2026-10-22 收进折叠区）：必填三项永驻，可选项平铺在旁边像"要填 10 项"——
-// 与"必填只有 3 项"的立论相悖。折叠不是隐藏：摘要行显示已填几项，
-// 提交出错时错误字段在折叠区里就自动展开（标红一行看不见的输入框等于没标）。
-const OPTIONAL_FIELDS = ['time', 'where', 'why', 'how', 'howmuch', 'tags'];
-
 const AUDIT_DELAY_MS = 2000;
 // 这些路径变了才值得重跑体检；_体检.md 是我们自己的产物，算进去会自激。
 // 主题=目录：任何 <主题>/事实/ 或 <主题>/_真源/ 下的变动都算。
@@ -471,9 +466,6 @@ class RecordModal extends Modal {
   // 没有"主题随时可改、候选随时重挂"的中间态，表单因此少一整段逻辑。
   private stage: 'topic' | 'fact' = 'topic';
   private topic = '';
-  // 阶段二的可选字段折叠区（2026-10-22）：showErrors 要在错误字段落在里面时把它展开
-  private optionalDetails: HTMLDetailsElement | null = null;
-  private optionalSummary: HTMLElement | null = null;
 
   // initial 是「复制这条事实」的预填草稿（2026-10-15）：带了主题就直接进阶段二，
   // 用户落在填满的表单上只改要改的。注意 TS 字段初始化器在构造体之前跑——
@@ -619,85 +611,55 @@ class RecordModal extends Modal {
     this.settings.content = this.settings.what;
     this.fieldHints.content = this.fieldHints.what;
 
-    // 可选维度收进折叠区（2026-10-22）：必填三项永驻，可选项平铺在旁边像"要填 10 项"——
-    // 与"必填只有 3 项"的立论相悖。折叠不是隐藏：摘要行报已填几项，出错时自动展开。
-    const opt = el.createEl('details', { cls: 'solofact-optional' });
-    this.optionalDetails = opt;
-    const filled = OPTIONAL_FIELDS.filter((k) => {
-      const v = d[k];
-      return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
-    }).length;
-    opt.setAttr('style', 'margin:10px 0 2px;');
-    this.optionalSummary = opt.createEl('summary', {
-      text: filled ? `更多细节（可选）· 已填 ${filled} 项` : '更多细节（可选，想到了再填，不填不报错）',
-      attr: { style: 'cursor:pointer;color:var(--text-muted);font-size:0.9em;padding:4px 0;user-select:none;' },
-    });
-    const optBody = opt.createDiv({ attr: { style: 'padding-top:2px;' } });
-
     // 可选维度：想到了才填，不填不报错。候选同样只来自当前主题。
-    this.settings.time = this.add(optBody, FIELD_META.time.label, FIELD_META.time.hint, 'time', (s) =>
+    // （2026-10-22 折叠区当日回退，用户拍板「5W2H 字段个个都挺重要」：折叠等于把录入提示
+    //  藏了，还每次多一次展开点击——省下的视觉成本转嫁成交互税。全部平铺，一屏看全；
+    //  「必填只有 3 项」靠行内字段说明传达，不靠藏字段。）
+    this.settings.time = this.add(el, FIELD_META.time.label, FIELD_META.time.hint, 'time', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('time', topic));
         if (d.time == null) d.time = localHHMMText();
         t.setValue(String(d.time));
-        t.onChange((v) => {
-          d.time = v;
-          this.refreshOptionalSummary();
-        });
+        t.onChange((v) => (d.time = v));
       })
     );
-    this.settings.where = this.add(optBody, FIELD_META.where.label, FIELD_META.where.hint, 'where', (s) =>
+    this.settings.where = this.add(el, FIELD_META.where.label, FIELD_META.where.hint, 'where', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('where', topic));
         if (d.where != null) t.setValue(String(d.where));
-        t.onChange((v) => {
-          d.where = v;
-          this.refreshOptionalSummary();
-        });
+        t.onChange((v) => (d.where = v));
       })
     );
-    this.settings.why = this.add(optBody, FIELD_META.why.label, FIELD_META.why.hint, 'why', (s) =>
+    this.settings.why = this.add(el, FIELD_META.why.label, FIELD_META.why.hint, 'why', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('why', topic));
         if (d.why != null) t.setValue(String(d.why));
-        t.onChange((v) => {
-          d.why = v;
-          this.refreshOptionalSummary();
-        });
+        t.onChange((v) => (d.why = v));
       })
     );
-    this.settings.how = this.add(optBody, FIELD_META.how.label, FIELD_META.how.hint, 'how', (s) =>
+    this.settings.how = this.add(el, FIELD_META.how.label, FIELD_META.how.hint, 'how', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('how', topic));
         if (d.how != null) t.setValue(String(d.how));
-        t.onChange((v) => {
-          d.how = v;
-          this.refreshOptionalSummary();
-        });
+        t.onChange((v) => (d.how = v));
       })
     );
-    this.settings.howmuch = this.add(optBody, FIELD_META.howmuch.label, FIELD_META.howmuch.hint, 'howmuch', (s) =>
+    this.settings.howmuch = this.add(el, FIELD_META.howmuch.label, FIELD_META.howmuch.hint, 'howmuch', (s) =>
       s.addText((t) => {
         t.inputEl.type = 'number';
         this.attachCombo(t.inputEl, this.historyOf('howmuch', topic));
         if (d.howmuch != null) t.setValue(String(d.howmuch));
-        t.onChange((v) => {
-          d.howmuch = v;
-          this.refreshOptionalSummary();
-        });
+        t.onChange((v) => (d.howmuch = v));
       })
     );
 
     // tags（2026-10-15 补）：契约里有这个字段，表单以前不给——不对称。可选，逗号分隔，
     // 候选来自本主题历史（frontmatter 里 tags 是数组，historyOf 已按元素逐个计）。
-    this.settings.tags = this.add(optBody, FIELD_META.tags.label, FIELD_META.tags.hint, 'tags', (s) =>
+    this.settings.tags = this.add(el, FIELD_META.tags.label, FIELD_META.tags.hint, 'tags', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('tags', topic));
         if (d.tags != null) t.setValue(Array.isArray(d.tags) ? d.tags.join(', ') : String(d.tags));
-        t.onChange((v) => {
-          d.tags = v;
-          this.refreshOptionalSummary();
-        });
+        t.onChange((v) => (d.tags = v));
       })
     );
 
@@ -722,21 +684,6 @@ class RecordModal extends Modal {
       text: '快捷键：Ctrl/Cmd+Enter 提交',
       attr: { style: 'color:var(--text-muted);font-size:0.8em;margin:6px 0 0;' },
     });
-    // 收尾刷新一次：time 是自动填的（用户没敲键盘），打开时算的计数漏了它——
-    // 不补这一下，新表单摘要行显示"想到了再填"而折叠区里明明有当前时刻。
-    this.refreshOptionalSummary();
-  }
-
-  // 摘要行跟着草稿走（2026-10-22）：打开时算一次的话，用户之后填什么计数都不动，
-  // "已填 N 项"就骗人。六个可选字段的 onChange 和阶段二渲染收尾各调一次。
-  private refreshOptionalSummary() {
-    const s = this.optionalSummary;
-    if (!s) return;
-    const filled = OPTIONAL_FIELDS.filter((k) => {
-      const v = this.draft[k];
-      return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
-    }).length;
-    s.setText(filled ? `更多细节（可选）· 已填 ${filled} 项` : '更多细节（可选，想到了再填，不填不报错）');
   }
 
   // 一行就是一个输入框：name 是字段名，hint 是它的说明（清空错误时还原回去），key 是 settings 的索引。
@@ -897,10 +844,6 @@ class RecordModal extends Modal {
           attr: { style: 'color:var(--text-error);font-weight:600;' },
         });
       }
-    }
-    // 折叠区里的字段报错时必须展开（2026-10-22 折叠的配套）：标红一行看不见的输入框等于没标
-    if (this.optionalDetails && issues.some((i) => i.field && (OPTIONAL_FIELDS as readonly string[]).includes(i.field))) {
-      this.optionalDetails.open = true;
     }
   }
 
