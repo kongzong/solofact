@@ -41,3 +41,16 @@ test('renderTimelineHtml 产出可浏览器预览的时间线页面', () => {
   assert.match(html, /做了 X/);
   assert.match(html, /🕐 09:00/);
 });
+
+test('renderTimelineHtml 给负值 howmuch 染绿色（出/减），正值不染', () => {
+  const html = renderTimelineHtml([
+    { date: '2026-10-12', who: 'A', body: '云服务器续费', howmuch: -1200 },
+    { date: '2026-10-12', who: 'A', body: '项目回款', howmuch: 140000 },
+    { date: '2026-10-12', who: 'A', body: '晨起称重', howmuch: 72.5 },
+  ]);
+  assert.match(html, /<span class="neg">-1200<\/span>/, '负值染绿——资金主题的"出"要一眼看见');
+  assert.doesNotMatch(html, /<span class="neg">140000/);
+  assert.doesNotMatch(html, /<span class="neg">72\.5/, '正值不染：符号语义是主题级约定，体重/里程没有正负含义，染红会误示警');
+  assert.match(html, /📊 140000/);
+  assert.match(html, /📊 72\.5/);
+});

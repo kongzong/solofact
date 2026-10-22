@@ -112,6 +112,45 @@ test('howmuch 只查是不是数（无 type/单位/正负校验）；纯叙事�
   }
 });
 
+test('record 不再默认注入 tags：fact 标签无人消费，还把候选下拉污染成唯一值', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    const store = fsAdapter(dir);
+    const s = openSession(store, { enums, now: NOW });
+    const r = s.record({ topic: '日常', who: '我', when: '2026-09-01', what: '读了半本书' });
+    assert.equal(r.written, true, JSON.stringify(r.fatal));
+    assert.equal(r.fact.tags, undefined, '没传 tags 就不该有 tags——曾经默认塞 ["fact"]，没有任何视图消费它');
+    const t = s.record({ topic: '日常', who: '我', when: '2026-09-02', what: '跑步 5 公里', tags: ['健康'] });
+    assert.deepEqual(t.fact.tags, ['健康'], '传了 tags 照原样收下');
+  } finally {
+    cleanup();
+  }
+});
+
+test('体检报告带字段填充画像：可选字段哪些真有人填，复盘的客观依据', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    const store = fsAdapter(dir);
+    const s = openSession(store, { enums, now: NOW });
+    s.record({ topic: '体重检测', who: '我', when: '2026-09-01', time: '07:00', what: '晨起称重', how: '测量', where: '家里', howmuch: 72.5 });
+    s.record({ topic: '体重检测', who: '我', when: '2026-09-02', what: '晨起称重', howmuch: 72 });
+    s.record({ topic: '体重检测', who: '我', when: '2026-09-03', what: '免费试用装', howmuch: 0 });
+    s.auditAndReport('测试库');
+    const report = readFileSync(path.join(dir, '_体检.md'), 'utf8');
+    assert.match(report, /## 字段填充（录入画像）/);
+    // who/when/what 恒满；where/how 各 1/3；why/tags 0；howmuch 3/3——0 算填了，不是空缺。
+    // time 不列入：makeFact 自动打戳（非当天补 00:00），填充率恒 100% 是机器产物不是习惯。
+    assert.match(
+      report,
+      /\| 体重检测 \| 3 \| 09-01 ~ 09-03 \| 100% \| 100% \| 100% \| 33% \| 0% \| 33% \| 100% \| 0% \|/
+    );
+    assert.doesNotMatch(report, /\| time \|/, 'time 是内核自动打戳的字段，不进画像');
+    assert.match(report, /\| \*\*全库\*\* \| \*\*3\*\* \|/, '全库行汇总所有主题');
+  } finally {
+    cleanup();
+  }
+});
+
 test('体检跨主题汇总；listTopics 只认有真源的主题目录', () => {
   const { dir, cleanup } = tmpVault();
   try {

@@ -68,6 +68,46 @@ function latestDay(rows) {
   return days.length ? days[days.length - 1] : '—';
 }
 
+// 字段填充画像（2026-10-22）：体检报告从"只报问题"升级成"录入习惯的客观画像"——
+// 每主题每字段填了百分之几。可选字段哪些真有人填、哪些是摆设，这是复盘"记录结构
+// 要不要调"（spec §5.2）的现成素材：印象会骗人，百分比不会。
+// 口径：howmuch=0 算填了（0 是数据不是空缺）；tags 空数组算没填；坏行（fact=null）
+// 不进画像——它们已经在错误明细里，掺进百分比只会把两个问题搅在一起。
+// time 不列入：makeFact 给每条事实自动打戳（非当天的补 00:00），它的填充率恒 100%，
+// 是机器产物不是录入习惯——放进表里只会让人以为"时刻字段人人都在填"。
+function fieldFillRows(rows) {
+  const FIELDS = ['who', 'when', 'what', 'where', 'why', 'how', 'howmuch', 'tags'];
+  const filled = (fact, f) => {
+    const v = f === 'what' ? fact.content ?? fact.what : fact[f];
+    if (v == null || v === '') return false;
+    if (Array.isArray(v)) return v.length > 0;
+    return true;
+  };
+  const pct = (facts, f) => `${Math.round((facts.filter((x) => filled(x, f)).length / facts.length) * 100)}%`;
+  const span = (facts) => {
+    const days = facts.map((x) => dayString(x.when)).filter(Boolean).sort();
+    return days.length ? `${days[0].slice(5)} ~ ${days.at(-1).slice(5)}` : '—';
+  };
+  const cells = (facts) => FIELDS.map((f) => pct(facts, f)).join(' | ');
+  const byTopic = new Map();
+  for (const r of rows) {
+    if (!r.fact) continue;
+    if (!byTopic.has(r.topic)) byTopic.set(r.topic, []);
+    byTopic.get(r.topic).push(r.fact);
+  }
+  const all = [...byTopic.values()].flat();
+  const lines = [
+    '## 字段填充（录入画像）',
+    '',
+    '| 主题 | 条数 | 跨度 | who | when | what | where | why | how | howmuch | tags |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+  ];
+  for (const [t, facts] of byTopic) lines.push(`| ${t} | ${facts.length} | ${span(facts)} | ${cells(facts)} |`);
+  if (all.length) lines.push(`| **全库** | **${all.length}** | ${span(all)} | ${cells(all)} |`);
+  lines.push('', '> 可选字段（where 起；time 由内核自动打戳，不列入）填得越少越接近摆设——调记录结构前先看这张表，别凭印象。', '');
+  return lines;
+}
+
 function reportLines({ title, vault, enums, now, rows, topics = [], extra = [], views = [] }) {
   const { fatal, warn, all } = tally(rows, views);
   const byTopic = new Map();
@@ -89,6 +129,7 @@ function reportLines({ title, vault, enums, now, rows, topics = [], extra = [], 
     `- 致命错误：**${fatal.length}** 条，分布在 ${new Set(fatal.map((f) => f.where)).size} 个文件`,
     `- 告警：**${warn.length}** 条`,
     '',
+    ...(rows.length ? fieldFillRows(rows) : []),
     ...extra,
     '## 按错误码',
     '',

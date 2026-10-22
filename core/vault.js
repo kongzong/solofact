@@ -336,12 +336,20 @@ function timelineSections(facts) {
             f.time && `🕐 ${f.time}`,
             f.where && `📍 ${f.where}`,
             f.how && `🔧 ${f.how}`,
-            f.howmuch != null && `📊 ${f.howmuch}`,
           ]
             .filter(Boolean)
             .map(escHtml)
             .join('　');
-          return `<li class="card"><div class="body">${escHtml(f.body)}</div><div class="meta">${meta}</div></li>`;
+          // howmuch 按符号着色（2026-10-22）：负=绿（出/减），正值不染。符号语义是**主题级约定**
+          // （资金主题 负=出；体重/里程没有符号语义，染红会误示警）——负方向是唯一跨主题一致的，
+          // 所以只染它。这里单独拼而不过 escHtml 数组：span 是 HTML，过一遍转义就废了。
+          const amount =
+            f.howmuch == null
+              ? ''
+              : Number(f.howmuch) < 0
+                ? `${meta ? '　' : ''}📊 <span class="neg">${escHtml(String(f.howmuch))}</span>`
+                : `${meta ? '　' : ''}📊 ${escHtml(String(f.howmuch))}`;
+          return `<li class="card"><div class="body">${escHtml(f.body)}</div><div class="meta">${meta}${amount}</div></li>`;
         })
         .join('');
       return `<section class="day"><div class="date">${escHtml(date)}</div><ul class="cards">${cards}</ul></section>`;
@@ -380,6 +388,7 @@ function timelineHtmlDoc({ title = '事实时间线', sub = '', nav = '', sectio
   .card:hover { border-color: #3b82f6; transform: translateX(2px); }
   .body { color: #e6e8ec; }
   .meta { margin-top: 6px; font-size: 12px; color: #8b93a1; }
+  .neg { color: #4ade80; font-weight: 600; }
 </style>
 </head>
 <body>

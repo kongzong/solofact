@@ -60,7 +60,9 @@ function makeFact(input, { now = Date.now() } = {}) {
   const daySrc = fact.when;
   if (!fact.time && parseDate(daySrc)) fact.time = daySrc === localDay(now) ? localHHMM(now) : '00:00';
   if (!fact.recorded) fact.recorded = localDay(now);
-  if (!fact.tags) fact.tags = ['fact'];
+  // 不默认注入 tags（2026-10-22 删）：曾经给没传 tags 的事实塞 ['fact']，没有任何视图消费它
+  // （.base 只按目录过滤），却把 tags 输选框的候选污染成唯一一个无意义值——用户从下拉里
+  // 只能选中它，还以为是自己记过。字段要么有人用，要么不存在。
   // 5w2h 的 what 既是必填字段也是正文：规范成 content，渲染层只认 content
   if (fact.what && !fact.content) fact.content = fact.what;
   if (!fact.id && parseDate(daySrc)) fact.id = makeId(daySrc, fact.time, randHex4());
