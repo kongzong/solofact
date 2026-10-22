@@ -5,7 +5,9 @@
 //   <主题>/事实/f-*.md          读模型（一条事实一个文件）
 //   <主题>/<主题>.base          Bases 视图
 //   <主题>/时间线.md / .html    可视化时间线
-// 外加根级 .obsidian/types.json（属性类型，全局共享）和 _体检.md（跨主题汇总）。
+// 外加根级 .obsidian/types.json（属性类型，全局共享）、_体检.md（跨主题汇总）
+// 和 _开始这里.md（2026-10-22 加：新用户解压 vault zip 后的第一触点——demo 数据是别人的，
+// 60 秒导览负责让他把它变成自己的。没有这张纸，用户打开库面对 5 个陌生主题，第一个念头是"这啥"）。
 // 架构不变：真源才是事实，Markdown/视图都是可随时重建的读模型。
 import { rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -67,9 +69,48 @@ for (const e of readdirSync(here, { withFileTypes: true })) {
     rmSync(path.join(here, e.name), { recursive: true, force: true });
   }
 }
-for (const f of ['事实', '_真源', '事实.base', '时间线.md', '时间线.html', '_体检.md']) {
+for (const f of ['事实', '_真源', '事实.base', '时间线.md', '时间线.html', '_体检.md', '_开始这里.md']) {
   rmSync(path.join(here, f), { recursive: true, force: true });
 }
+
+// 首触导览：解压即读的第一张纸。三条铁律和 vault README 的"记错了怎么办"段呼应，
+// 但那里是手册、这里是 60 秒——用户第一次打开库时不会去翻 README。
+const START_HERE = `# 从这里开始
+
+欢迎来到 solofact——**一条事实 = 一个文件**的 Obsidian 事实层。这个库里现在是**演示数据**，花 60 秒做完下面三件事，它就是你的了。
+
+## 1 · 先看效果（30 秒）
+
+文件树里任选一个主题目录进去（比如 \`一人公司CRM业务/\`），点开 \`一人公司CRM业务.base\`：八个视图——全部事实 / 按谁聚合 / 按在哪 / 按方式 / 按为何 / 时间线 / 正值记录 / 负值记录。再点开同目录的 \`时间线.md\`，看按月分段的时间线（每月一份小文件，记几年也打得开）。
+
+## 2 · 删掉演示数据（10 秒）
+
+把文件树里这五个演示主题目录**整个删掉**：一人公司CRM业务、公司记账、家庭记账、潮汕6日游、体重检测。删目录就是删主题，干脆——真源、视图、时间线都在目录里，一起走。
+
+## 3 · 记你的第一条（20 秒）
+
+点左侧边栏的**笔形图标**（或 Ctrl/Cmd+P 搜「记一条事实」）：
+
+- **阶段一**：输入主题名（比如「我的副业」）→ 回车进入下一步
+- **阶段二**：只填**谁 / 何时 / 发生了啥**三项就能存——其余可选字段收在「更多细节」折叠区里，想到了再展开填
+- **快捷键**：Ctrl/Cmd+Enter 随时提交；一天多笔用「记下来并继续」，录完不关窗
+
+存盘后，该主题的真源、\`.base\` 视图、时间线自动生成。状态栏（右下角）会显示「**今日 N**｜主题…｜事实…」——今天记没记、记了几条，一眼可见。
+
+## 三条铁律（违了会静默出问题）
+
+1. **别用 Obsidian 自带的复制**（Ctrl/Cmd+D 复制事实文件）——真源不知情，副本会被体检报错、被重建清掉。以旧稿为底稿录新的，用插件命令「**复制这条事实**」；改内容用「**编辑这条事实**」。
+2. **别直接改 \`事实/*.md\` 的内容**——Markdown 是读模型，真源是 \`<主题>/_真源/facts.ndjson\`，手改会被「从真源重建」静默抹掉。
+3. **更新插件别整体覆盖库**——只把 \`solofact/\`（main.js + manifest.json）两个文件覆盖进 \`<你的库>/.obsidian/plugins/solofact/\`，你的数据一个字节不碰。
+
+## 它在哪
+
+- 体检报告：库根 \`_体检.md\`（点状态栏也能打开）
+- 每主题的视图：\`<主题>/<主题>.base\`
+- 每主题的时间线：\`<主题>/时间线.md\`（索引页，按月点进去）
+
+> 这张纸本身就是演示库的一部分，删不删随你，不影响插件工作。
+`;
 
 const store = fsAdapter(here);
 const s = openSession(store, { enums, now: Date.now() });
@@ -81,6 +122,8 @@ for (const f of seed) {
   else console.error(`✗ 拒绝 ${topic}/${r.fact.id}:`, r.fatal.map((i) => `${i.code} ${i.message}`).join('；'));
 }
 const audit = s.auditAndReport('demo 事实库');
+// 首触导览写在重建之后：和 _体检.md 一样是库根生成物，每次重建都刷新一份
+store.write('_开始这里.md', START_HERE);
 // 录完必须再重建一遍：record 的 ensureTopic 只在主题创建时写一次 .base/时间线（那时还是空的），
 // 不重建的话 demo 里的时间线永远显示"0 条"、.base 也不是最终形态——2026-10-13 实测踩到
 const rb = s.rebuild();

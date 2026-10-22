@@ -11,12 +11,14 @@ vault-5w2h/.obsidian/plugins/solofact/main.js
 vault-5w2h/*/
 !vault-5w2h/.obsidian/
 vault-5w2h/_体检.md
+vault-5w2h/_开始这里.md
 
 # Obsidian 运行时的本地状态（每台机器不同，不发不传）
 vault-5w2h/.obsidian/app.json
 vault-5w2h/.obsidian/appearance.json
 vault-5w2h/.obsidian/workspace.json
 vault-5w2h/.obsidian/core-plugins.json
+vault-5w2h/.obsidian/themes/
 
 # 回收站与本地记忆
 .Trash-*/

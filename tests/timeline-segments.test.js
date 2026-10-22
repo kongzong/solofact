@@ -147,3 +147,43 @@ test('日期倒序（顺手修的老 bug：标题写着"倒序"，实际按录�
     cleanup();
   }
 });
+
+test('分段页：页眉与第一条 callout 之间必须有空行（2026-10-22 真机 bug）', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    seed(dir, ['2026-01-05', '2026-01-06']);
+    const seg = readFileSync(path.join(dir, TOPIC, '时间线-2026-01.md'), 'utf8');
+    // Obsidian 要求 [!note] 声明前有空行：只有一个换行的话，callout 按引用块内纯文本渲染，
+    // 日期头变成一行字面的"[!note] 📅 …"。分段页页眉（"重建会覆盖"）紧接第一条 callout，
+    // 每个分段页**最新的一条**都中招——索引页因隔着「## 最近 20 条」标题才幸免。
+    assert.match(seg, /重建会覆盖。\n\n> \[!note\]/, '页眉与第一条 callout 之间缺空行');
+    assert.match(seg, /_\n\n> \[!note\]/, '各组 callout 之间的空行也不能丢');
+    // 反向 sanity：全文不该出现"引用行紧跟 [!note]"的形态
+    assert.ok(!/^>.*\n> \[!note\]/m.test(seg), '任何一行引用都不允许直接接 [!note]');
+  } finally {
+    cleanup();
+  }
+});
+
+test('html 索引页：最近 20 条要渲染成卡片，不能只有月份链接', () => {
+  const { dir, cleanup } = tmpVault();
+  try {
+    seed(dir, ['2026-01-05', '2026-01-06', '2026-02-10']);
+    const html = readFileSync(path.join(dir, TOPIC, '时间线.html'), 'utf8');
+    assert.equal((html.match(/class="card"/g) ?? []).length, 3, 'html 索引要把最近条目渲染成卡片');
+    assert.match(html, /2026-02\.html/, '月份导航链接还要在');
+  } finally {
+    cleanup();
+  }
+  // 索引页尺寸恒定：25 个不同日期也只渲染最近 20 张卡片（与 md 索引同一上限）
+  const { dir: dir2, cleanup: cleanup2 } = tmpVault();
+  try {
+    const dates = [];
+    for (let i = 0; i < 25; i++) dates.push(`2026-01-${String(i + 1).padStart(2, '0')}`);
+    seed(dir2, dates);
+    const html = readFileSync(path.join(dir2, TOPIC, '时间线.html'), 'utf8');
+    assert.equal((html.match(/class="card"/g) ?? []).length, 20, 'html 索引同样只放最近 20 条');
+  } finally {
+    cleanup2();
+  }
+});

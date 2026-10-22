@@ -300,6 +300,11 @@ function renderTimeline(facts, opts = {}) {
     opts.sub ??
       `> 内核从 \`_真源/\` 自动生成的可视化读模型（${facts.length} 条，按日期倒序）。在 Obsidian 里改这张图没用——重建会覆盖。`,
     '',
+    // 这个空行是 callout 的命根子：Obsidian 要求 [!note] 声明前必须有空行，
+    // 少一个换行，整段按引用块内纯文本渲染——日期头变成一行字面的 "[!note] 📅 …"。
+    // 2026-10-22 真机踩到：分段页页眉（"重建会覆盖"那行）紧跟着第一条 callout，
+    // 每个分段页最新的一条都中招。索引页因为隔着「## 最近 20 条」标题才幸免。
+    '',
   ];
   return lines.join('\n') + timelineCallouts(facts) + '\n';
 }
@@ -459,12 +464,16 @@ function renderTimelineSegHtml(topic, month, facts, total) {
 
 function renderTimelineIndexHtml(topic, segs, facts) {
   const months = [...segs.keys()];
+  // 与 md 索引页同一套"最近 20 条"：html 索引不能只有月份链接——
+  // 打开 html 就该看到最近发生的事，否则它得再点进当月分段才算数（2026-10-22 补：
+  // 此前 sections 传的是 ''，.timeline 容器从来没填过，纯半成品）。
+  const recent = [...facts].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, TIMELINE_RECENT);
   return timelineHtmlDoc({
     sub: `共 ${facts.length} 条事实 · 跨 ${months.length} 个月 · 按月分段`,
     nav: months
       .map((m) => `<a href="${encodeURI(`时间线-${m}.html`)}">${monthLabel(m)}</a>（${segs.get(m).length}）`)
       .join(' · ') || '（还没有事实）',
-    sections: '',
+    sections: recent.length ? timelineSections(recent) : '',
   });
 }
 

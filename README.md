@@ -8,7 +8,7 @@
 - **规则只有一份**：契约（`contract/`）+ 纯函数核（`core/`），CLI 和插件两个壳都只是它的调用者
 - **插件「只写不看」**：不渲染表格、不做仪表盘，宿主 Obsidian 才是查看层
 
-当前版本 **0.3.0** · 测试 35 绿 · [发布流程](RELEASE.md) · [演示库说明](vault-5w2h/README.md)
+当前版本 **0.4.0** · 测试全绿 · [发布流程](RELEASE.md) · [演示库说明](vault-5w2h/README.md)
 
 ---
 
@@ -52,7 +52,7 @@
 **agent 用户**：
 
 ```bash
-tar xzf solofact-skill-0.3.0.tar.gz
+tar xzf solofact-skill-0.4.0.tar.gz
 cp -r solofact ~/.workbuddy/skills/     # 项目级安装则放到 <项目>/.workbuddy/skills/
 # 对你的 agent 说：「记一条：今天给了阿杰 UI 尾款 8000 元，记到公司记账」
 ```
@@ -62,7 +62,7 @@ cp -r solofact ~/.workbuddy/skills/     # 项目级安装则放到 <项目>/.wor
 ```bash
 git clone https://github.com/kongzong/solofact.git && cd solofact
 npm i            # 只装 devDeps（esbuild + typescript），运行时零依赖
-npm test         # 35 条测试：内核 + CLI 子进程 + 插件静态守卫
+npm test         # 内核 + CLI 子进程 + 插件静态守卫
 npm run plugin   # 构建插件 bundle 进 vault-5w2h
 ```
 
@@ -84,7 +84,7 @@ npm run plugin   # 构建插件 bundle 进 vault-5w2h
 contract/     规则契约（字段、必填、id 格式）——改规则先改这里
 core/         纯函数核：validate / record(落盘) / scan(体检) / vault(视图)
   adapters/   存储适配：真实文件系统 + 插件壳的暂存 store（同语义两实现）
-cli/          写入路径 CLI（agent 的录入口）：五个写入命令 + 只读「主题」命令
+cli/          写入路径 CLI（agent 的录入口）：六个写入命令 + 只读「主题」命令
 plugin/       Obsidian 插件壳（main.ts，两阶段录入表单）
 skill/        agent 技能指令（SKILL.md，配 CLI 使用）
 scripts/      发布工具链：版本同步 + 三个 pack + release 编排
@@ -101,7 +101,7 @@ vault-5w2h/   演示库（可再生：node vault-5w2h/build.js）
 
 ## 状态与路线
 
-- **0.3.0**（当前）：主题=目录形态定型；时间线录入即刷新；正/负值视图；CLI 退出码契约有测试锁定；BRAT 分发就绪
+- **0.4.0**（当前）：删除/编辑/复制三命令（复制走真源底稿，编辑=另存新稿+删旧稿）；时间线按月分段（录入 O(1)）；`.base` 文件名=目录名的严格规矩（体检+弹窗双保险）；表单可选字段折叠 + 键盘流 + 状态栏「今日已记」
 - **未做**：Obsidian 官方商店提交（等 BRAT 稳定运行几个版本）、npm publish（package.json 已配好 `files`，随时可发）
 
 [RELEASE.md](RELEASE.md) 有完整的发布/更新流程。

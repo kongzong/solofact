@@ -30,6 +30,11 @@ const FIELD_META: Record<string, { label: string; hint: string }> = {
   tags: { label: '标签', hint: '可选，逗号分隔；候选来自本主题历史' },
 };
 
+// 可选维度（2026-10-22 收进折叠区）：必填三项永驻，可选项平铺在旁边像"要填 10 项"——
+// 与"必填只有 3 项"的立论相悖。折叠不是隐藏：摘要行显示已填几项，
+// 提交出错时错误字段在折叠区里就自动展开（标红一行看不见的输入框等于没标）。
+const OPTIONAL_FIELDS = ['time', 'where', 'why', 'how', 'howmuch', 'tags'];
+
 const AUDIT_DELAY_MS = 2000;
 // 这些路径变了才值得重跑体检；_体检.md 是我们自己的产物，算进去会自激。
 // 主题=目录：任何 <主题>/事实/ 或 <主题>/_真源/ 下的变动都算。
@@ -187,10 +192,15 @@ export default class SolofactPlugin extends Plugin {
       do {
         this.dirtyStatus = false;
         const store = await this.openStore(true);
-        const r = openSession(store, { enums: enums5w2h, now: Date.now() }).auditAndReport('事实库');
+        const now = Date.now();
+        const r = openSession(store, { enums: enums5w2h, now }).auditAndReport('事实库');
         const flush = await store.flush();
         this.reportConfig(flush, store);
-        this.status.setText(`主题 ${r.topics.length} · 事实 ${r.rows.length} · 致命 ${r.fatal.length} · 告警 ${r.warn.length}`);
+        // 今日已记放状态栏第一项（2026-10-22）："坚持记"最需要的反馈是今天记没记、记了几条。
+        // rows 扫的是 事实/*.md，录入 2 秒后的防抖体检自动带上新记的那条，无需另开 IO。
+        // （cast 只是告诉 TS"fact 上有 when"——JS 内核的推断类型太窄，这不是第二份规则）
+        const todayCount = r.rows.filter((x) => x.fact && (x.fact as { when?: string }).when === localDayText(now)).length;
+        this.status.setText(`今日 ${todayCount}｜主题 ${r.topics.length}｜事实 ${r.rows.length}｜致命 ${r.fatal.length}｜告警 ${r.warn.length}`);
         this.status.setAttr('title', `solofact：点这里看 ${DIR.report}`);
         this.status.removeClass('solofact-clean');
         if (!r.fatal.length) this.status.addClass('solofact-clean');
@@ -461,6 +471,8 @@ class RecordModal extends Modal {
   // 没有"主题随时可改、候选随时重挂"的中间态，表单因此少一整段逻辑。
   private stage: 'topic' | 'fact' = 'topic';
   private topic = '';
+  // 阶段二的可选字段折叠区（2026-10-22）：showErrors 要在错误字段落在里面时把它展开
+  private optionalDetails: HTMLDetailsElement | null = null;
 
   // initial 是「复制这条事实」的预填草稿（2026-10-15）：带了主题就直接进阶段二，
   // 用户落在填满的表单上只改要改的。注意 TS 字段初始化器在构造体之前跑——
@@ -480,6 +492,15 @@ class RecordModal extends Modal {
 
   onOpen() {
     this.contentEl.addClass('solofact-record');
+    // 键盘流（2026-10-22）：Ctrl/Cmd+Enter = 提交 / 阶段一下一步。what 是 textarea，
+    // 裸 Enter 必须留给换行，所以这里只劫持组合键；阶段一的裸 Enter 挂在主题框自己的
+    // keydown 上（要避开 datalist"选中第一项"的默认语义，见 comboMatchesSuggestion）。
+    this.contentEl.addEventListener('keydown', (ev: KeyboardEvent) => {
+      if (ev.key !== 'Enter' || (!ev.metaKey && !ev.ctrlKey)) return;
+      ev.preventDefault();
+      if (this.stage === 'topic') this.advance();
+      else void this.submit(false);
+    });
     // 草稿带主题 = 复制入口：跳过阶段一（主题已锁，行内「换主题」仍可回退重选）
     if (String(this.draft.topic ?? '').trim()) {
       this.topic = String(this.draft.topic);
@@ -511,6 +532,14 @@ class RecordModal extends Modal {
           this.clearErrors();
           this.okBtn?.setDisabled(!v.trim());
         });
+        // 回车 = 下一步（2026-10-22）。datalist 弹出时浏览器 Enter 的默认动作是选中第一项：
+        // 输入值与某个候选完全相等才拦截（主题已定，前进无损失），否则放行让浏览器选。
+        t.inputEl.addEventListener('keydown', (ev: KeyboardEvent) => {
+          if (ev.key !== 'Enter' || ev.shiftKey || ev.metaKey || ev.ctrlKey) return;
+          if (!comboMatchesSuggestion(t.inputEl)) return;
+          ev.preventDefault();
+          this.advance();
+        });
       })
     );
 
@@ -522,6 +551,10 @@ class RecordModal extends Modal {
         this.okBtn = b.setButtonText('下一步：记事实').setCta().onClick(() => this.advance());
       });
     this.okBtn.setDisabled(!String(d.topic ?? '').trim());
+    el.createEl('p', {
+      text: '回车进入下一步 · Ctrl/Cmd+Enter 也可以',
+      attr: { style: 'color:var(--text-muted);font-size:0.8em;margin:6px 0 0;' },
+    });
   }
 
   // 阶段一→二：主题定了，才谈得上"同主题历史候选"。
@@ -585,8 +618,23 @@ class RecordModal extends Modal {
     this.settings.content = this.settings.what;
     this.fieldHints.content = this.fieldHints.what;
 
+    // 可选维度收进折叠区（2026-10-22）：必填三项永驻，可选项平铺在旁边像"要填 10 项"——
+    // 与"必填只有 3 项"的立论相悖。折叠不是隐藏：摘要行报已填几项，出错时自动展开。
+    const opt = el.createEl('details', { cls: 'solofact-optional' });
+    this.optionalDetails = opt;
+    const filled = OPTIONAL_FIELDS.filter((k) => {
+      const v = d[k];
+      return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
+    }).length;
+    opt.setAttr('style', 'margin:10px 0 2px;');
+    opt.createEl('summary', {
+      text: filled ? `更多细节（可选）· 已填 ${filled} 项` : '更多细节（可选，想到了再填，不填不报错）',
+      attr: { style: 'cursor:pointer;color:var(--text-muted);font-size:0.9em;padding:4px 0;user-select:none;' },
+    });
+    const optBody = opt.createDiv({ attr: { style: 'padding-top:2px;' } });
+
     // 可选维度：想到了才填，不填不报错。候选同样只来自当前主题。
-    this.settings.time = this.add(el, FIELD_META.time.label, FIELD_META.time.hint, 'time', (s) =>
+    this.settings.time = this.add(optBody, FIELD_META.time.label, FIELD_META.time.hint, 'time', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('time', topic));
         if (d.time == null) d.time = localHHMMText();
@@ -594,28 +642,28 @@ class RecordModal extends Modal {
         t.onChange((v) => (d.time = v));
       })
     );
-    this.settings.where = this.add(el, FIELD_META.where.label, FIELD_META.where.hint, 'where', (s) =>
+    this.settings.where = this.add(optBody, FIELD_META.where.label, FIELD_META.where.hint, 'where', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('where', topic));
         if (d.where != null) t.setValue(String(d.where));
         t.onChange((v) => (d.where = v));
       })
     );
-    this.settings.why = this.add(el, FIELD_META.why.label, FIELD_META.why.hint, 'why', (s) =>
+    this.settings.why = this.add(optBody, FIELD_META.why.label, FIELD_META.why.hint, 'why', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('why', topic));
         if (d.why != null) t.setValue(String(d.why));
         t.onChange((v) => (d.why = v));
       })
     );
-    this.settings.how = this.add(el, FIELD_META.how.label, FIELD_META.how.hint, 'how', (s) =>
+    this.settings.how = this.add(optBody, FIELD_META.how.label, FIELD_META.how.hint, 'how', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('how', topic));
         if (d.how != null) t.setValue(String(d.how));
         t.onChange((v) => (d.how = v));
       })
     );
-    this.settings.howmuch = this.add(el, FIELD_META.howmuch.label, FIELD_META.howmuch.hint, 'howmuch', (s) =>
+    this.settings.howmuch = this.add(optBody, FIELD_META.howmuch.label, FIELD_META.howmuch.hint, 'howmuch', (s) =>
       s.addText((t) => {
         t.inputEl.type = 'number';
         this.attachCombo(t.inputEl, this.historyOf('howmuch', topic));
@@ -626,7 +674,7 @@ class RecordModal extends Modal {
 
     // tags（2026-10-15 补）：契约里有这个字段，表单以前不给——不对称。可选，逗号分隔，
     // 候选来自本主题历史（frontmatter 里 tags 是数组，historyOf 已按元素逐个计）。
-    this.settings.tags = this.add(el, FIELD_META.tags.label, FIELD_META.tags.hint, 'tags', (s) =>
+    this.settings.tags = this.add(optBody, FIELD_META.tags.label, FIELD_META.tags.hint, 'tags', (s) =>
       s.addText((t) => {
         this.attachCombo(t.inputEl, this.historyOf('tags', topic));
         if (d.tags != null) t.setValue(Array.isArray(d.tags) ? d.tags.join(', ') : String(d.tags));
@@ -650,6 +698,10 @@ class RecordModal extends Modal {
     }
     bar.addButton((b) => {
       this.okBtn = b.setButtonText(this.editing ? '保存修改' : '记下来').setCta().onClick(() => void this.submit(false));
+    });
+    el.createEl('p', {
+      text: '快捷键：Ctrl/Cmd+Enter 提交',
+      attr: { style: 'color:var(--text-muted);font-size:0.8em;margin:6px 0 0;' },
     });
   }
 
@@ -812,6 +864,10 @@ class RecordModal extends Modal {
         });
       }
     }
+    // 折叠区里的字段报错时必须展开（2026-10-22 折叠的配套）：标红一行看不见的输入框等于没标
+    if (this.optionalDetails && issues.some((i) => i.field && (OPTIONAL_FIELDS as readonly string[]).includes(i.field))) {
+      this.optionalDetails.open = true;
+    }
   }
 
   private clearErrors() {
@@ -897,6 +953,18 @@ class TopicSuggestModal extends SuggestModal<string> {
   onChooseSuggestion(topic: string) {
     this.onPick(topic);
   }
+}
+
+// input[list] 的 datalist 弹出时，浏览器 Enter 的默认动作是"选中高亮项"。没有标准 API
+// 查询弹没弹，用启发式：输入值与某个候选完全相等 → 已选定（Enter 前进无损失）；
+// 否则不动，让浏览器完成选择——用户下一个 Enter 值已匹配，自然前进。
+function comboMatchesSuggestion(input: HTMLInputElement): boolean {
+  const listId = input.getAttribute('list');
+  if (!listId) return true;
+  const dl = input.ownerDocument.getElementById(listId);
+  if (!dl) return true;
+  const v = input.value.trim();
+  return [...dl.querySelectorAll('option')].some((o) => o.value === v);
 }
 
 // 标红不依赖任何注入的 <style> 或 CSS class：直接给输入框（Setting 行）设内联样式。
