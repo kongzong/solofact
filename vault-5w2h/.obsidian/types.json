@@ -7,6 +7,5 @@
   "why": "text",
   "how": "text",
   "howmuch": "number",
-  "recorded": "date",
-  "tags": "tags"
+  "recorded": "date"
 }

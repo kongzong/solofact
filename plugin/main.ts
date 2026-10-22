@@ -534,6 +534,7 @@ class RecordModal extends Modal {
     // who 预填上次成功提交的值（2026-10-22）：单人场景 who 恒为「我自己」，CRM 场景
     // 连续录同一客户——每天重输是纯录入税。复制/编辑入口（initial 有值）不预填，
     // 底稿里的 who 是旧稿的，盖掉它等于悄悄改了要复制的内容。
+    // 没有上次值（冷启动）时不在这里兜底——阶段二才知道主题，兜底在 renderFactStage。
     if (!this.initial && this.plugin.lastWho && this.draft.who == null) {
       this.draft.who = this.plugin.lastWho;
     }
@@ -639,7 +640,14 @@ class RecordModal extends Modal {
     // 必填三项：who / when / what。候选按当前主题取；来过的值留着（换主题再回来不丢）。
     this.settings.who = this.add(el, FIELD_META.who.label, FIELD_META.who.hint, 'who', (s) =>
       s.addText((t) => {
-        this.attachCombo(t.inputEl, this.historyOf('who', topic));
+        const whoHistory = this.historyOf('who', topic);
+        this.attachCombo(t.inputEl, whoHistory);
+        // 冷启动兜底（2026-10-22 真机验收补）：data.json 里没有上次 who 时（新装插件，
+        // 或"装插件之前库里就有历史"的渐变真库——用户的记录都还没在新插件下落盘过），
+        // 用本主题最高频的 who 预填。单人库（谁=我自己）第一次开表单就该是填好的，
+        // 不该要求用户先记一条才生效。onOpen 里的 lastWho 仍然优先（data.json 有值时
+        // d.who 早已填上）；这里只兜底 null——用户清空过（''）是明确意图，不替他回填。
+        if (d.who == null) d.who = whoHistory[0] ?? '';
         if (d.who != null) t.setValue(String(d.who));
         t.onChange((v) => (d.who = v));
       })

@@ -82,16 +82,21 @@ test('题注行：字段缺失时优雅退化——没有可选字段就只渲�
   assert.equal(fact.content, '裸记一笔');
 });
 
-test('.base 正/负值表各带一处 howmuch Sum 汇总（2026-10-22 用户拍板）', () => {
+test('.base 三张表各带一处 howmuch Sum 汇总（2026-10-22 用户拍板；默认视图那处是验收后补的）', () => {
   const base = buildBase('公司记账');
-  // 两处 summaries：正值记录 + 负值记录。全表混排的「全部事实」不给 Sum——
-  // 进和出加在一起是个没有意义的数。
+  // 三处 summaries：全部事实（默认视图）+ 正值记录 + 负值记录。
+  // 全部事实那处是 2026-10-22 真机验收后补的：用户打开 .base 停在默认视图，
+  // 只挂在正/负表上的汇总根本看不见——汇总放在没人看的视图里等于没有。
+  // 且混符号相加恰是资金主题的净流量，不是无意义数。
   const sums = [...base.matchAll(/summaries:\n      howmuch: Sum/g)];
-  assert.equal(sums.length, 2, '正值/负值两张表各一处 Sum');
+  assert.equal(sums.length, 3, '全部事实/正值/负值三张表各一处 Sum');
+  const allIdx = base.indexOf('name: 全部事实');
   const posIdx = base.indexOf('name: 正值记录');
   const negIdx = base.indexOf('name: 负值记录');
+  const allSum = base.indexOf('summaries:', allIdx);
   const posSum = base.indexOf('summaries:', posIdx);
   const negSum = base.indexOf('summaries:', negIdx);
+  assert.ok(allSum > allIdx && allSum < posIdx, '全部事实（默认视图）的 Sum 在其段落内');
   assert.ok(posSum > posIdx && posSum < negIdx, '正值表的 Sum 在正值视图段落内');
   assert.ok(negSum > negIdx, '负值表的 Sum 在负值视图段落内');
 });
