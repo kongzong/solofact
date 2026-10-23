@@ -1,7 +1,7 @@
 {
   "id": "solofact",
   "name": "solofact 事实层",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "minAppVersion": "1.9.0",
   "description": "只写不看：录入表单＋常驻体检。一条事实＝一个文件，写入必须过契约；查看用宿主的 Bases。",
   "author": "solofact",
