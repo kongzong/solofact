@@ -5,6 +5,9 @@ dist/
 # 发版前的真源备份（pack:demo 会全清重建 vault-5w2h，先兜底真实记录）
 .release-backup/
 
+# 临时日志与发版说明（bash 的 /tmp 跨命令不持久，日志落项目内；不入库）
+.tmp-logs/
+
 # 开发库的构建产物（协作者跑 npm run plugin 生成，不进历史）
 vault-5w2h/.obsidian/plugins/solofact/main.js
 
