@@ -186,6 +186,23 @@ test('5W2H 表单：两阶段（先主题后事实），必填 who/when/what，�
   assert.ok((text.match(/setPlaceholder\(/g) ?? []).length <= 1, '5W2H 输入框不设占位符：提示走字段描述，不塞进输入框');
 });
 
+test('输选框「有值也想重选」：点进已有值的框 → 值挪到 placeholder → 下拉给全量候选（2026-10-23 真机反馈）', () => {
+  const text = readFileSync(path.join(root, 'plugin', 'main.ts'), 'utf8');
+  // 用户反馈原文：选过一个项目后想重选，"只能将当前选择项目退格删掉，才能出现全部选项"。
+  // 根因是宿主 <datalist> 按框里的值过滤——空值才给全量。先删再选是荒谬的交互。
+  assert.match(text, /function browseAllOnClick\(input: HTMLInputElement\)/, '必须有这层补丁');
+  assert.match(text, /input\.setAttr\('list', listId\);\s*browseAllOnClick\(input\);/, '每个挂上候选的输选框都要带这层补丁（不只 who：time/where/why/how/howmuch/主题框都算）');
+  assert.match(text, /input\.placeholder = saved;/, '点进来时值挪到 placeholder：灰字显示原值，信息不丢');
+  assert.match(text, /if \(!input\.value\) input\.value = saved;/, '没被真改过就失焦 → 悄悄搬回');
+  assert.match(text, /input\.addEventListener\('mousedown', moveOut\)/, '绑 mousedown 不绑 focus：Tab 进来是「我要改字」，鼠标点进来才是「我要挑一个」');
+  // 不用宿主自绘浮层：2026-10-23 核过 /usr/lib/obsidian/obsidian.asar，AbstractInputSuggest 在
+  // showSuggestions 之后 500ms 自动关闭（PopoverSuggest#setAutoDestroy → fE(el,500,close)，
+  // 只有再次 input 才续期）——"停下来看看有哪些选项"恰恰是它做不到的。真要用先改守卫与注释。
+  // 只禁真用法（import / extends），注释里保留这段论据——它本身就是决策记录。
+  assert.doesNotMatch(text, /import\s*\{[^}]*\bAbstractInputSuggest\b/, '宿主自绘浮层 500ms 自动关闭，本条反馈的诉求在它那儿不成立');
+  assert.doesNotMatch(text, /extends\s+AbstractInputSuggest/, '同上');
+});
+
 test('改回视图文件名必须在原位：不许用 fileManager.renameFile（2026-10-15 真机：文件跑到库根去了）', () => {
   const text = readFileSync(path.join(root, 'plugin', 'main.ts'), 'utf8');
   // fileManager.renameFile 的第二个参数是**文件名不是路径**：它会把文件挪到"新文件的默认位置"

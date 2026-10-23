@@ -720,6 +720,7 @@ class RecordModal extends Modal {
     const dl = this.contentEl.createEl('datalist', { attr: { id: listId } });
     for (const v of history) dl.createEl('option', { value: v });
     input.setAttr('list', listId);
+    browseAllOnClick(input);
   }
 
   // 历史候选：读 事实/*.md 的 frontmatter 里某个字段，按出现频次排序（2026-10-15，A2——
@@ -956,6 +957,57 @@ function comboMatchesSuggestion(input: HTMLInputElement): boolean {
   if (!dl) return true;
   const v = input.value.trim();
   return [...dl.querySelectorAll('option')].some((o) => o.value === v);
+}
+
+// 「有值也想重选」的一层补丁（2026-10-23 真机反馈）：宿主 `<datalist>` 是按框里的值过滤的，
+// 选过一个之后再点开，下拉里只剩那一个——用户反馈"得先把当前值退格删掉，才看得见全部选项"。
+// 先删再选是荒谬的交互：删也是一次操作，删错了还得重打。
+//
+// 做法：不换控件，只补宿主缺的那一层——**点（鼠标按下）进已有值的框 = 把值临时挪到
+// placeholder**，于是下拉是空值过滤，给出**全部**候选；值没被真改过（没打字、没从列表里选）
+// 就失焦 → 悄悄搬回输入框。灰字显示原值，所以什么信息都没丢。与"重命名文件"同一个范式。
+//
+// 为什么不上宿主自绘浮层 AbstractInputSuggest（它能一劳永逸地做同样的事，2026-10-23 核过
+// /usr/lib/obsidian/obsidian.asar 的实现）：它在 showSuggestions 之后**500ms 自动关闭**
+// （PopoverSuggest#setAutoDestroy(e) → fE(el,500,close)，只有再次 input 才续期）。
+// 本条反馈的诉求恰恰是"停下来看看有哪些选项"，500ms 后列表自己没了——所以原生浮层在这条
+// 上比 datalist 更糟。这条注释是守卫的一部分（测试禁 AbstractInputSuggest 回归）：哪天宿主
+// 改了 500ms 的行为，可以重新评估，那时连这条注释一起删。
+//
+// 为什么不绑 focus 而是 mousedown：Tab 进来是"我要改字"，鼠标点进来才是"我要挑一个"。
+// 只改显示不改数据：moveOut 动的是 input.value，draft 里的值一直是对的（提交时填的就是
+// 原值，不会因为"框里看着是空的"就报 E_MISSING_FIELD）。
+function browseAllOnClick(input: HTMLInputElement) {
+  let saved = '';
+  let moved = false;
+  const moveOut = () => {
+    if (moved || !input.value) return;
+    moved = true;
+    saved = input.value;
+    input.value = '';
+    input.placeholder = saved; // 值还在眼前，只是变成灰字
+  };
+  const moveBack = () => {
+    if (!moved) return;
+    moved = false;
+    input.placeholder = '';
+    if (!input.value) input.value = saved; // 没被动过 → 悄悄搬回
+    saved = '';
+  };
+  input.addEventListener('mousedown', moveOut);
+  input.addEventListener('blur', moveBack);
+  // 用户动过它（打字/粘贴/从列表里选）= 明确意图，不再搬回
+  input.addEventListener('input', () => {
+    moved = false;
+    saved = '';
+  });
+  // 空值上按退格/删除：用户是在"我要它空着"，别把旧值搬回来（按了不产生 input 事件）
+  input.addEventListener('keydown', (ev) => {
+    if ((ev.key === 'Backspace' || ev.key === 'Delete') && !input.value) {
+      moved = false;
+      saved = '';
+    }
+  });
 }
 
 // 标红不依赖任何注入的 <style> 或 CSS class：直接给输入框（Setting 行）设内联样式。
